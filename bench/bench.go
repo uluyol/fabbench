@@ -10,6 +10,7 @@ import (
 
 	"github.com/uluyol/fabbench/db"
 	"github.com/uluyol/fabbench/intgen"
+	"github.com/uluyol/fabbench/recorders"
 )
 
 type Config struct {
@@ -80,7 +81,7 @@ func (l *Loader) Run(ctx context.Context) error {
 				case <-newCtx.Done():
 					retErr = newCtx.Err()
 					return
-				default:
+				default: // don't wait
 				}
 			}
 		}()
@@ -136,43 +137,153 @@ type Runner struct {
 	Rand   *rand.Rand
 	Trace  []TraceStep
 
-	LatencyRecorder *recorders.Latency
-	LatencyWriter   io.Writer
+	ReadRecorder  recorders.Latency
+	ReadWriter    io.Writer
+	WriteRecorder recorder.Latency
+	WriteWriter   io.Writer
+}
 
-	TraceRecorder *recorders.Trace
-	TraceWriter   io.Writer
+type result struct {
+	latency time.Duration
+	err     error
+}
+
+func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w io.Writer) {
+	for res := range c {
+		rec.Record(res.latency, res.err)
+	}
+	rec.WriteTo(w)
+	wg.Done()
 }
 
 func (r *Runner) Run(ctx context.Context) error {
-	type result struct {
-		latency time.Duration
-		err     error
-	}
-
 	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), l.Config.ValSize)
 
 	for _, ts := range trace {
+		select {
+		case <-ctx.Done():
+			break
+		default: // don't wait
+		}
 		rg := makeSyncGen(ts.ReadKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
 		wg := makeSyncGen(ts.WriteKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
 		readKeyGen := stringGen{G: rg, Len: r.Config.KeySize}
 		writeKeyGen := stringGen{G: wg, Len: r.Config.KeySize}
 
-		meanPeriod := float64(time.Second) / float64(ts.AvgQPS)
-		// shrink period so that dist calculation doesn't take too long
-		meanPeriod /= 10 * float64(time.Microsecond)
+		readC := make(chan result)
+		writeC := make(chan result)
 
-		// TODO: implement me
-		arrivalDist := makeArrivalDist(ts.ArrivalDist, rand.NewSource(r.Rand.Int63()), float64(meanPeriod))
+		r.ReadRecorder.Reset()
+		r.WriteRecorder.Reset()
 
-		rc := make(chan result)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go recordAndWrite(readC, &wg, &r.ReadRecorder, r.ReadWriter)
+		wg.Add(1)
+		go recordAndWrite(writeC, &wg, &r.WriteRecorder, r.WriteWriter)
 
+		args := issueArgs{
+			db:          r.DB,
+			readKeyGen:  readKeyGen,
+			writeKeyGen: writeKeyGen,
+			valGen:      valGen,
+			rwRatio:     ts.RWRatio,
+			rand:        r.Rand,
+			readC:       readC,
+			writeC:      writeC,
+		}
+
+		if ts.ArrivaDist.Kind == adClosed {
+			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
+			issueClosed(ctx, rc, args, ts.ArrivalDist.clWorkers(), nops)
+		} else {
+			meanPeriod := float64(time.Second) / float64(ts.AvgQPS)
+			// shrink period so that dist calculation doesn't take too long
+			meanPeriod /= 10 * float64(time.Microsecond)
+			arrivalGen := makeArrivalDist(ts.ArrivalDist, rand.NewSource(r.Rand.Int63()), float64(meanPeriod))
+
+			issueOpen(ctx, rc, args, arrivalGen, ts.Duration)
+		}
+
+		close(readC)
+		close(writeC)
+		wg.Wait()
 	}
 }
 
-type openLoopArgs struct{}
+type issueArgs struct {
+	db          db.DB
+	readKeyGen  stringGen
+	writeKeyGen stringGen
+	valGen      valueGen
+	rwRatio     float32
+	rand        *rand.Rand
 
-func issueOpen(ctx context.Context, rc chan<- result, tc chan<- traceResult, args openLoopArgs) {}
+	readC, writeC chan<- result
+}
 
-type closedLoopArgs struct{}
+func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execDuration time.Duration) {
+	var wg sync.WaitGroup
+	start := time.Now()
+	for time.Since(start) < execDuration {
+		select {
+		case <-ctx.Done():
+			break
+		default: // don't wait
+		}
+		nextIsRead := args.rand.Float32() < args.rwRatio
+		wait := time.Duration(arrivalGen()) * 10 * time.Microsecond
+		time.Sleep(wait)
+		reqStart := time.Now()
+		wg.Add(1)
+		go func(reqStart time.Time, isRead bool) {
+			defer wg.Done()
+			if isRead {
+				key := args.readKeyGen.Next()
+				_, err := args.db.Get(ctx, key)
+				latency := time.Since(reqStart)
+				args.readC <- result{latency, err}
+			} else {
+				key := args.writeKeyGen.Next()
+				val := args.valGen.Next()
+				err := args.db.Put(ctx, key, val)
+				latency := time.Since(start)
+				args.writeC <- result{latency, err}
+			}
+		}(reqStart, nextIsRead)
+	}
+	wg.Wait()
+}
 
-func issueClosed(ctx context.Context, rc chan<- result, tc chan<- traceResult, args closedLoopArgs) {}
+func issueClosed(ctx context.Context, args issueArgs, workers int, totalOps int64) {
+	nops := new(counter)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(rng *rand.Rand) {
+			defer wg.Done()
+
+			for i := nops.getAndInc(); i < totalOps; i = nops.getAndInc() {
+				select {
+				case <-ctx.Done():
+					break
+				default: // don't wait
+				}
+				start := time.Now()
+				if rng.Float32() < args.rwRatio {
+					key := args.readKeyGen.Next()
+					_, err := args.db.Get(ctx, key)
+					latency := time.Since(start)
+					args.readC <- result{latency, err}
+				} else {
+					key := args.writeKeyGen.Next()
+					val := args.valGen.Next()
+					err := args.db.Put(ctx, key, val)
+					latency := time.Since(start)
+					args.writeC <- result{latency, err}
+				}
+			}
+		}(rand.New(args.rand.Int63()))
+	}
+	wg.Wait()
+}
