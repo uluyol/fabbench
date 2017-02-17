@@ -61,7 +61,7 @@ func (l *Loader) Run(ctx context.Context) error {
 	}
 
 	nops := new(counter)
-	errs := make(chan err)
+	errs := make(chan error)
 
 	for i := 0; i < l.NumWorkers; i++ {
 		go func() {
@@ -73,7 +73,7 @@ func (l *Loader) Run(ctx context.Context) error {
 			for i := nops.getAndInc(); i < loadCount; i = nops.getAndInc() {
 				key := keyGen.Next()
 				val := valGen.Next()
-				retErr = db.Put(newCtx, key, val)
+				retErr = l.DB.Put(newCtx, key, val)
 				if retErr != nil {
 					return
 				}
@@ -124,7 +124,7 @@ func makeArrivalDist(d arrivalDist, rsrc rand.Source, meanPeriod float64) intgen
 	case adUniform:
 		g = intgen.NewUniform(rsrc, int64(2*meanPeriod))
 	case adPoisson:
-		g = intgen.NewPoisson(rsrc, meanPeriod)
+		g = newPoisson(rsrc, meanPeriod)
 	default:
 		panic(fmt.Errorf("invalid arrival dist %v", d))
 	}
@@ -139,7 +139,7 @@ type Runner struct {
 
 	ReadRecorder  recorders.Latency
 	ReadWriter    io.Writer
-	WriteRecorder recorder.Latency
+	WriteRecorder recorders.Latency
 	WriteWriter   io.Writer
 }
 
@@ -157,18 +157,18 @@ func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency,
 }
 
 func (r *Runner) Run(ctx context.Context) error {
-	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), l.Config.ValSize)
+	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), r.Config.ValSize)
 
-	for _, ts := range trace {
+	for _, ts := range r.Trace {
 		select {
 		case <-ctx.Done():
-			break
+			return ctx.Err()
 		default: // don't wait
 		}
-		rg := makeSyncGen(ts.ReadKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
-		wg := makeSyncGen(ts.WriteKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
-		readKeyGen := stringGen{G: rg, Len: r.Config.KeySize}
-		writeKeyGen := stringGen{G: wg, Len: r.Config.KeySize}
+		rig := makeSyncGen(ts.ReadKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
+		wig := makeSyncGen(ts.WriteKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
+		readKeyGen := stringGen{G: rig, Len: r.Config.KeySize}
+		writeKeyGen := stringGen{G: wig, Len: r.Config.KeySize}
 
 		readC := make(chan result)
 		writeC := make(chan result)
@@ -193,29 +193,30 @@ func (r *Runner) Run(ctx context.Context) error {
 			writeC:      writeC,
 		}
 
-		if ts.ArrivaDist.Kind == adClosed {
+		if ts.ArrivalDist.Kind == adClosed {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
-			issueClosed(ctx, rc, args, ts.ArrivalDist.clWorkers(), nops)
+			issueClosed(ctx, args, ts.ArrivalDist.clWorkers(), nops)
 		} else {
 			meanPeriod := float64(time.Second) / float64(ts.AvgQPS)
 			// shrink period so that dist calculation doesn't take too long
 			meanPeriod /= 10 * float64(time.Microsecond)
 			arrivalGen := makeArrivalDist(ts.ArrivalDist, rand.NewSource(r.Rand.Int63()), float64(meanPeriod))
 
-			issueOpen(ctx, rc, args, arrivalGen, ts.Duration)
+			issueOpen(ctx, args, arrivalGen, ts.Duration)
 		}
 
 		close(readC)
 		close(writeC)
 		wg.Wait()
 	}
+	return nil
 }
 
 type issueArgs struct {
 	db          db.DB
 	readKeyGen  stringGen
 	writeKeyGen stringGen
-	valGen      valueGen
+	valGen      *valueGen
 	rwRatio     float32
 	rand        *rand.Rand
 
@@ -232,7 +233,7 @@ func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execD
 		default: // don't wait
 		}
 		nextIsRead := args.rand.Float32() < args.rwRatio
-		wait := time.Duration(arrivalGen()) * 10 * time.Microsecond
+		wait := time.Duration(arrivalGen.Next()) * 10 * time.Microsecond
 		time.Sleep(wait)
 		reqStart := time.Now()
 		wg.Add(1)
@@ -283,7 +284,7 @@ func issueClosed(ctx context.Context, args issueArgs, workers int, totalOps int6
 					args.writeC <- result{latency, err}
 				}
 			}
-		}(rand.New(args.rand.Int63()))
+		}(rand.New(rand.NewSource(args.rand.Int63())))
 	}
 	wg.Wait()
 }

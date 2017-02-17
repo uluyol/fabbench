@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/uluyol/fabbench/internal/proto"
@@ -61,6 +62,7 @@ var errPre = []byte("Error:")
 var bCoordinator = []byte("coordinator")
 var bDuration = []byte("duration")
 var bSource = []byte("source")
+var bElapsed = []byte("elapsed")
 
 func isNotNumLetterDot(c rune) bool {
 	return !unicode.IsNumber(c) && !unicode.IsLetter(c) && c != '.'
@@ -94,7 +96,7 @@ func (tc *traceConsumer) Write(b []byte) (n int, err error) {
 					tc.curTrace.CoordinatorAddr = fields[i+1]
 				} else if bytes.HasPrefix(f, bDuration) && i+1 < len(fields) {
 					d, _ := time.ParseDuration(string(fields[i+1]))
-					d /= time.Microseconds
+					d /= time.Microsecond
 					tc.curTrace.DurationMicros = int32(d)
 				}
 			}
@@ -112,11 +114,11 @@ func (tc *traceConsumer) Write(b []byte) (n int, err error) {
 			startName := -1
 			for i := range buf {
 				if buf[i] == ' ' {
-					if found {
+					if foundSpace {
 						startName = i + 1
 						break
 					}
-					found = true
+					foundSpace = true
 				}
 			}
 			if startName < 0 || startName >= len(buf) {
@@ -132,8 +134,8 @@ func (tc *traceConsumer) Write(b []byte) (n int, err error) {
 				if bytes.HasPrefix(f, bSource) && i+1 < len(fields) {
 					ev.Source = fields[i+1]
 				} else if bytes.HasPrefix(f, bElapsed) && i+1 < len(fields) {
-					dus, _ := strconv.Atoi(fields[i+1])
-					ev.DurationMicros = dus
+					dus, _ := strconv.ParseInt(string(fields[i+1]), 10, 32)
+					ev.DurationMicros = int32(dus)
 				}
 			}
 			tc.curTrace.Events = append(tc.curTrace.Events, &ev)

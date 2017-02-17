@@ -45,7 +45,7 @@ func formatKeyName(v int64, keySize int) string {
 	} else {
 		buf = buf[:keySize]
 	}
-	for i = oldlen; i < keySize; i++ {
+	for i := oldlen; i < keySize; i++ {
 		buf[i] = ':'
 	}
 

@@ -21,7 +21,7 @@ func WriteDelimitedTo(w io.Writer, m proto.Message) error {
 	copy(concat, buf[:n])
 	copy(concat[n:], data)
 
-	_, err := w.Write(concat)
+	_, err = w.Write(concat)
 	return err
 }
 

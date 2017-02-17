@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -50,13 +51,13 @@ func parseArrivalDist(raw string) (arrivalDist, error) {
 		if err != nil {
 			return arrivalDist{}, fmt.Errorf("bad workers for closed: %v", err)
 		}
-		return arrivalDist{Kind: adClosed, Param1: w}, nil
+		return arrivalDist{Kind: adClosed, Param1: int16(w)}, nil
 	case lower == "uniform":
 		return arrivalDist{Kind: adUniform}, nil
 	case lower == "poisson":
 		return arrivalDist{Kind: adPoisson}, nil
 	}
-	return 0, fmt.Errorf("unknown arrival distribution: %s", raw)
+	return arrivalDist{}, fmt.Errorf("unknown arrival distribution: %s", raw)
 }
 
 type keyDistKind uint8
@@ -115,7 +116,7 @@ func parseKeyDist(raw string) (keyDist, error) {
 		if err != nil {
 			return keyDist{}, fmt.Errorf("bad theta for zipfian: %v", err)
 		}
-		return keyDist{Kind: kdZipfian, Param1: math.Float64Bits(theta)}, nil
+		return keyDist{Kind: kdZipfian, Param1: math.Float64bits(theta)}, nil
 	case strings.HasPrefix(lower, "linstep"):
 		t := strings.TrimPrefix(lower, "linstep-")
 		steps, err := strconv.ParseUint(t, 10, 64)
@@ -146,7 +147,7 @@ const (
 )
 
 func (t *TraceStep) String() string {
-	fmt.Sprintf("d=%s rw=%f qps=%d ad=%s rkd=%s wkd=%s",
+	return fmt.Sprintf("d=%s rw=%f qps=%d ad=%s rkd=%s wkd=%s",
 		t.Duration, t.RWRatio, t.AvgQPS, t.ArrivalDist, t.ReadKeyDist, t.WriteKeyDist)
 }
 
@@ -220,7 +221,6 @@ func ParseTrace(r io.Reader) ([]TraceStep, error) {
 }
 
 func PrintTrace(w io.Writer, trace []TraceStep) (n int, err error) {
-	var n int
 	for i := range trace {
 		t := &trace[i]
 		m, err := fmt.Fprintln(w, t)

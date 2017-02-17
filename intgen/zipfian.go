@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"runtime"
 
-	"github.com/uluyol/cachesim/cmd/notswissbench/internal/fnv"
+	"github.com/uluyol/fabbench/internal/fnv"
 )
 
 // A generator of a zipfian distribution. It produces a
