@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 option java_package = "com.yahoo.ycsb.db";
-option go_package = "recorders";
+option go_package = "proto";
 
 message TraceInfo {
     string req_type = 1;
