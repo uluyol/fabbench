@@ -236,7 +236,7 @@ func ParseTrace(r io.Reader) ([]TraceStep, error) {
 		}
 		steps = append(steps, step)
 	}
-	return steps, nil
+	return steps, s.Err()
 }
 
 func PrintTrace(w io.Writer, trace []TraceStep) (n int, err error) {
