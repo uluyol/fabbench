@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -19,7 +20,7 @@ const (
 )
 
 type arrivalDist struct {
-	Param1 int16
+	Param1 uint64
 	Kind   arrivalDistKind
 }
 
@@ -28,7 +29,7 @@ func (d arrivalDist) String() string {
 	case adClosed:
 		return fmt.Sprintf("closed-%d", d.clWorkers())
 	case adUniform:
-		return "uniform"
+		return fmt.Sprintf("uniform-%f", d.uniWidth())
 	case adPoisson:
 		return "poisson"
 	}
@@ -42,18 +43,33 @@ func (d arrivalDist) clWorkers() int {
 	return int(d.Param1)
 }
 
+func (d arrivalDist) uniWidth() float64 {
+	if d.Kind != adUniform {
+		panic("check arrival dist kind: not uniform")
+	}
+	return math.Float64frombits(d.Param1)
+}
+
 func parseArrivalDist(raw string) (arrivalDist, error) {
 	lower := strings.ToLower(raw)
 	switch {
 	case strings.HasPrefix(lower, "closed"):
 		t := strings.TrimPrefix(lower, "closed-")
-		w, err := strconv.ParseInt(t, 10, 16)
+		w, err := strconv.ParseInt(t, 10, 64)
 		if err != nil {
 			return arrivalDist{}, fmt.Errorf("bad workers for closed: %v", err)
 		}
-		return arrivalDist{Kind: adClosed, Param1: int16(w)}, nil
-	case lower == "uniform":
-		return arrivalDist{Kind: adUniform}, nil
+		return arrivalDist{Kind: adClosed, Param1: uint64(w)}, nil
+	case strings.HasPrefix(lower, "uniform"):
+		t := strings.TrimPrefix(lower, "uniform-")
+		w, err := strconv.ParseFloat(t, 64)
+		if err != nil {
+			return arrivalDist{}, fmt.Errorf("bad width for uniform: %v", err)
+		}
+		if w < 0 || w > 1 {
+			return arrivalDist{}, errors.New("uniform width must be in [0, 1]")
+		}
+		return arrivalDist{Kind: adUniform, Param1: math.Float64bits(w)}, nil
 	case lower == "poisson":
 		return arrivalDist{Kind: adPoisson}, nil
 	}
@@ -132,9 +148,9 @@ type TraceStep struct {
 	Duration     time.Duration
 	ReadKeyDist  keyDist
 	WriteKeyDist keyDist
+	ArrivalDist  arrivalDist
 	RWRatio      float32
 	AvgQPS       uint32
-	ArrivalDist  arrivalDist
 }
 
 const (

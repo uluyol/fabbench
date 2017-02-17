@@ -122,7 +122,7 @@ func makeArrivalDist(d arrivalDist, rsrc rand.Source, meanPeriod float64) intgen
 	case adClosed:
 		g = closed{}
 	case adUniform:
-		g = intgen.NewUniform(rsrc, int64(2*meanPeriod))
+		g = newUniform(rsrc, meanPeriod, d.uniWidth())
 	case adPoisson:
 		g = newPoisson(rsrc, meanPeriod)
 	default:

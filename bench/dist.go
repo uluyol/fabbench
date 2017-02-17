@@ -33,3 +33,20 @@ type closed struct{}
 func (g closed) Next() int64 {
 	panic("closed generator should never be called")
 }
+
+type uniform struct {
+	min int64
+	siz int64
+	r   *rand.Rand
+}
+
+func newUniform(rsrc rand.Source, mean, width float64) uniform {
+	min := int64(mean - mean*width)
+	max := int64(mean + mean*width)
+	siz := max - min + 1 // since we draw rand numbers below siz
+	return uniform{min: min, siz: siz, r: rand.New(rsrc)}
+}
+
+func (g uniform) Next() int64 {
+	return g.min + g.r.Int63n(g.siz)
+}
