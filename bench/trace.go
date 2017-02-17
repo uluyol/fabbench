@@ -9,18 +9,23 @@ import (
 	"time"
 )
 
-type arrivalDist uint8
+type arrivalDistKind uint8
 
 const (
-	adClosed arrivalDist = iota + 1
+	adClosed arrivalDistKind = iota + 1
 	adUniform
 	adPoisson
 )
 
+type arrivalDist struct {
+	Param1 int16
+	Kind   arrivalDistKind
+}
+
 func (d arrivalDist) String() string {
-	switch d {
+	switch d.Kind {
 	case adClosed:
-		return "closed"
+		return fmt.Sprintf("closed-%d", d.clWorkers())
 	case adUniform:
 		return "uniform"
 	case adPoisson:
@@ -29,14 +34,27 @@ func (d arrivalDist) String() string {
 	return fmt.Sprintf("unknown(%d)", d)
 }
 
+func (d arrivalDist) clWorkers() int {
+	if d.Kind != adClosed {
+		panic("check arrival dist kind: not closed")
+	}
+	return int(d.Param1)
+}
+
 func parseArrivalDist(raw string) (arrivalDist, error) {
-	switch strings.ToLower(raw) {
-	case "closed":
-		return adClosed, nil
-	case "uniform":
-		return adUniform, nil
-	case "poisson":
-		return adPoisson, nil
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.HasPrefix(lower, "closed"):
+		t := strings.TrimPrefix(lower, "closed-")
+		w, err := strconv.ParseInt(t, 10, 16)
+		if err != nil {
+			return arrivalDist{}, fmt.Errorf("bad workers for closed: %v", err)
+		}
+		return arrivalDist{Kind: adClosed, Param1: w}, nil
+	case lower == "uniform":
+		return arrivalDist{Kind: adUniform}, nil
+	case lower == "poisson":
+		return arrivalDist{Kind: adPoisson}, nil
 	}
 	return 0, fmt.Errorf("unknown arrival distribution: %s", raw)
 }

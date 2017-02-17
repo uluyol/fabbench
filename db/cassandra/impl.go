@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gocql/gocql"
 	"github.com/uluyol/fabbench/db"
+	"github.com/uluyol/fabbench/recorders"
 )
 
 type conf struct {
@@ -23,6 +26,9 @@ type conf struct {
 	KeyCaching         string `json:"keyCaching"`
 	CompactionStrategy string `json:"compactionStrategy"`
 	Timeout            string `json:"timeout"`
+
+	TraceData *string `json:"traceData",omitempty`
+	TraceRate *int    `json:"traceRate",omitempty`
 }
 
 func newInt(v int) *int { return &v }
@@ -82,9 +88,20 @@ type client struct {
 	conf             *conf
 
 	session *gocql.Session
+	tracer  gocql.Tracer
 
 	getQPool sync.Pool
 	putQPool sync.Pool
+
+	opCount int32
+}
+
+func (c *client) traceQuery(q *gocql.Query) *gocql.Query {
+	if c.tracer != nil {
+		if atomic.AddInt32(&c.opCount, 1)%*c.conf.TraceRate == 0 {
+			return q.Trace(c.tracer)
+		}
+	}
 }
 
 func (c *client) getQuery() *gocql.Query {
@@ -142,12 +159,24 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 		return nil, fmt.Errorf("unable to connect to cluster: %v", err)
 	}
 
+	var tracer gocql.Tracer
+	if cfg.TraceRate != nil && cfg.TraceData != nil {
+		f, err := os.Create(cfg.TraceData)
+		if err != nil {
+			return nil, fmt.Errorf("unable to open trace file: %v", err)
+		}
+		at := recorders.NewAsyncTrace(f)
+		go at.Consume()
+		tracer = gocql.NewTraceWriter(s, recorder.NewTraceConsumer(at.C))
+	}
+
 	c := &client{
 		cluster:          cluster,
 		readConsistency:  readConsistency,
 		writeConsistency: writeConsistency,
 		conf:             cfg,
 		session:          s,
+		tracer:           tracer,
 	}
 	return c, nil
 }
@@ -183,7 +212,7 @@ func (c *client) Get(ctx context.Context, key string) (string, error) {
 	q := c.getQuery()
 	var v string
 	for retry := 0; retry < *c.conf.ClientRetries; retry++ {
-		err := q.Bind(key).WithContext(ctx).Scan(&v)
+		err := c.traceQuery(q.Bind(key).WithContext(ctx)).Scan(&v)
 		switch err {
 		case gocql.ErrNoConnections:
 			// retry
@@ -200,7 +229,7 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 	q := c.putQuery()
 
 	for retry := 0; retry < *c.conf.ClientRetries; retry++ {
-		err := q.Bind(key, val).WithContext(ctx).Exec()
+		err := c.traceQuery(q.Bind(key, val).WithContext(ctx)).Exec()
 		switch err {
 		case gocql.ErrNoConnections:
 			// retry
