@@ -228,6 +228,9 @@ func ParseTrace(r io.Reader) ([]TraceStep, error) {
 
 	for s.Scan() {
 		lineno++
+		if strings.TrimSpace(s.Text()) == "" {
+			continue
+		}
 		if err := parseTraceStep(s.Text(), &step); err != nil {
 			return nil, fmt.Errorf("%d: %v", err)
 		}
