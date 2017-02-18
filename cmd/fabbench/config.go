@@ -7,6 +7,8 @@ import (
 
 	"github.com/uluyol/fabbench/bench"
 	"github.com/uluyol/fabbench/db"
+
+	_ "github.com/uluyol/fabbench/db/cassandra"
 )
 
 type cmdConfig struct {

@@ -18,7 +18,7 @@ const formatsDoc = `
 CONFIG FORMAT
 	The config file is a simple JSON file with the following schema:
 		{
-			"db" {
+			"db": {
 				"name": NAME_STR,
 				"options": DB_SPECIFIC_OPTIONS
 			},
@@ -192,15 +192,15 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		log.Fatalf("unable to load trace: %v", err)
 	}
 
-	readF, err := os.Open(c.outPre + "-ro.gz")
+	readF, err := os.Create(c.outPre + "-ro.gz")
 	if err != nil {
-		log.Fatalf("unable to open read log file %s: %v", c.outPre+"-ro.gz", err)
+		log.Fatalf("unable to open read log file: %v", err)
 	}
 	defer readF.Close()
 
-	writeF, err := os.Open(c.outPre + "-wo.gz")
+	writeF, err := os.Create(c.outPre + "-wo.gz")
 	if err != nil {
-		log.Fatalf("unable to open write log file %s: %v", c.outPre+"-wo.gz", err)
+		log.Fatalf("unable to open write log file %v", err)
 	}
 	defer writeF.Close()
 
