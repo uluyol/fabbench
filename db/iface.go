@@ -9,6 +9,7 @@ type DB interface {
 	Init(ctx context.Context) error
 	Get(ctx context.Context, key string) (string, error)
 	Put(ctx context.Context, key, val string) error
+	Close() error
 }
 
 var dbs = make(map[string]func(h []string, b []byte) (DB, error))

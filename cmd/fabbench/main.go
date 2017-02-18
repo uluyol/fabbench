@@ -112,6 +112,7 @@ func (c *mkTableCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...inte
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 	if err := db.Init(ctx); err != nil {
 		log.Fatal(err)
 	}
@@ -145,6 +146,7 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 
 	l := bench.Loader{
 		DB:         db,
@@ -186,6 +188,7 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 
 	trace, err := loadTrace(c.tracePath)
 	if err != nil {

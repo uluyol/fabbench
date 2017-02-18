@@ -3,7 +3,6 @@ package recorders
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"io"
 	"strconv"
 	"sync"
@@ -16,30 +15,39 @@ import (
 type AsyncTrace struct {
 	C chan *proto.TraceInfo
 
-	w *gzip.Writer
+	closed chan struct{}
+
+	w  *gzip.Writer
+	uw io.WriteCloser
 }
 
-func NewAsyncTrace(w io.Writer) *AsyncTrace {
+func NewAsyncTrace(w io.WriteCloser) *AsyncTrace {
 	t := &AsyncTrace{
-		w: gzip.NewWriter(w),
-		C: make(chan *proto.TraceInfo),
+		uw:     w,
+		w:      gzip.NewWriter(w),
+		C:      make(chan *proto.TraceInfo, 10),
+		closed: make(chan struct{}),
 	}
 	return t
 }
 
 // Do not create more than one consumer
-func (t *AsyncTrace) Consume(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
+func (t *AsyncTrace) Consume() {
+	defer func() { close(t.closed) }()
+	defer t.uw.Close()
+	defer t.w.Close()
+	for ti := range t.C {
+		if ti == nil {
 			break
-		case ti := <-t.C:
-			if ti == nil {
-				break
-			}
-			proto.WriteDelimitedTo(t.w, ti)
 		}
+		proto.WriteDelimitedTo(t.w, ti)
+		t.w.Flush()
 	}
+}
+
+func (t *AsyncTrace) Close() {
+	t.C <- nil
+	<-t.closed
 }
 
 // Sigh. gocql only exports trace information as text.

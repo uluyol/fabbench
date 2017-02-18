@@ -41,7 +41,7 @@ func (c *conf) fillDefaults() {
 		{&c.ClientRetries, 10},
 		{&c.NumRetries, 4},
 		{&c.ReplicationFactor, 3},
-		{&c.NumConns, 20},
+		{&c.NumConns, 4},
 	}
 	for _, f := range intFields {
 		if *f.val == nil {
@@ -93,6 +93,7 @@ type client struct {
 		err  error
 	}
 
+	at     *recorders.AsyncTrace
 	tracer gocql.Tracer
 
 	getQPool sync.Pool
@@ -104,7 +105,9 @@ type client struct {
 func (c *client) getSession() (*gocql.Session, error) {
 	c.session.once.Do(func() {
 		c.session.s, c.session.err = c.cluster.CreateSession()
+		c.tracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.at.C))
 	})
+
 	return c.session.s, c.session.err
 }
 
@@ -164,6 +167,7 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 	cluster.ProtoVersion = 4
 	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: *cfg.NumRetries}
 	cluster.Timeout = timeout
+	cluster.SocketKeepalive = 30 * time.Second
 	cluster.NumConns = *cfg.NumConns
 
 	// Test that we can create a session.
@@ -180,15 +184,14 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 
 	cluster.Keyspace = cfg.Keyspace
 
-	var tracer gocql.Tracer
+	var at *recorders.AsyncTrace
 	if cfg.TraceRate != nil && cfg.TraceData != nil {
 		f, err := os.Create(*cfg.TraceData)
 		if err != nil {
 			return nil, fmt.Errorf("unable to open trace file: %v", err)
 		}
-		at := recorders.NewAsyncTrace(f)
-		go at.Consume(context.Background())
-		tracer = gocql.NewTraceWriter(s, recorders.NewTraceConsumer(at.C))
+		at = recorders.NewAsyncTrace(f)
+		go at.Consume()
 	}
 
 	c := &client{
@@ -196,7 +199,7 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 		readConsistency:  readConsistency,
 		writeConsistency: writeConsistency,
 		conf:             cfg,
-		tracer:           tracer,
+		at:               at,
 	}
 	return c, nil
 }
@@ -270,6 +273,11 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 	}
 	c.cachePutQuery(q)
 	return gocql.ErrNoConnections
+}
+
+func (c *client) Close() error {
+	c.at.Close()
+	return nil
 }
 
 func makeDB(hosts []string, data []byte) (db.DB, error) {
