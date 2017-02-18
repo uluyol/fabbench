@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/uluyol/fabbench/db"
@@ -32,7 +33,20 @@ func (c *counter) getAndInc() int64 {
 	return v
 }
 
+func (c *counter) get() int64 {
+	c.mu.Lock()
+	v := c.c
+	c.mu.Unlock()
+	return v
+}
+
+type Logger interface {
+	Print(v ...interface{})
+	Printf(format string, v ...interface{})
+}
+
 type Loader struct {
+	Log        Logger
 	DB         db.DB
 	Config     Config
 	Rand       *rand.Rand
@@ -40,6 +54,61 @@ type Loader struct {
 
 	LoadStart int64
 	LoadCount int64
+}
+
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+type periodicLogger struct {
+	log    Logger
+	period time.Duration
+	out    func(l Logger)
+	done   chan struct{}
+	wg     sync.WaitGroup
+}
+
+func openPeriodicLogger(log Logger, period time.Duration, out func(l Logger)) *periodicLogger {
+	if log == nil {
+		return nil
+	}
+	l := &periodicLogger{
+		log:    log,
+		period: period,
+		out:    out,
+		done:   make(chan struct{}),
+	}
+	l.goPrinter()
+	return l
+}
+
+func (l *periodicLogger) goPrinter() {
+	l.wg.Add(1)
+	go func() {
+		t := time.NewTicker(l.period)
+		defer t.Stop()
+		defer l.wg.Done()
+		for {
+			select {
+			case <-t.C:
+				l.out(l.log)
+			case <-l.done:
+				l.out(l.log)
+				return
+			}
+		}
+	}()
+}
+
+func (l *periodicLogger) Close() {
+	if l == nil {
+		return
+	}
+	close(l.done)
+	l.wg.Wait()
 }
 
 func (l *Loader) Run(ctx context.Context) error {
@@ -62,6 +131,13 @@ func (l *Loader) Run(ctx context.Context) error {
 
 	nops := new(counter)
 	errs := make(chan error)
+
+	msgLogger := openPeriodicLogger(l.Log, 10*time.Second, func(l Logger) {
+		done := min(nops.get(), loadCount)
+		pctDone := 100 * float64(done) / float64(loadCount)
+		l.Printf("%d/%d (%.0f%%) records written", done, loadCount, pctDone)
+	})
+	defer msgLogger.Close()
 
 	for i := 0; i < l.NumWorkers; i++ {
 		go func() {
@@ -132,6 +208,7 @@ func makeArrivalDist(d arrivalDist, rsrc rand.Source, meanPeriod float64) intgen
 }
 
 type Runner struct {
+	Log    Logger
 	DB     db.DB
 	Config Config
 	Rand   *rand.Rand
@@ -156,10 +233,40 @@ func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency,
 	wg.Done()
 }
 
+type resultCounter struct {
+	succ int32
+	fail int32
+}
+
+func (c *resultCounter) countAndFwdTo(fwdC chan<- result) chan<- result {
+	ch := make(chan result)
+	go func() {
+		for r := range ch {
+			if r.err != nil {
+				atomic.AddInt32(&c.fail, 1)
+			} else {
+				atomic.AddInt32(&c.succ, 1)
+			}
+			fwdC <- r
+		}
+		close(fwdC)
+	}()
+	return ch
+}
+
+func (c *resultCounter) getAndReset() (succ int32, fail int32) {
+	succ = atomic.SwapInt32(&c.succ, 0)
+	fail = atomic.SwapInt32(&c.fail, 0)
+	return succ, fail
+}
+
 func (r *Runner) Run(ctx context.Context) error {
 	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), r.Config.ValSize)
 
-	for _, ts := range r.Trace {
+	for tsIndex, ts := range r.Trace {
+		if r.Log != nil {
+			r.Log.Printf("starting trace step %d: %s", tsIndex, &ts)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -170,17 +277,28 @@ func (r *Runner) Run(ctx context.Context) error {
 		readKeyGen := stringGen{G: rig, Len: r.Config.KeySize}
 		writeKeyGen := stringGen{G: wig, Len: r.Config.KeySize}
 
-		readC := make(chan result)
-		writeC := make(chan result)
+		readRecordC := make(chan result)
+		writeRecordC := make(chan result)
 
 		r.ReadRecorder.Reset()
 		r.WriteRecorder.Reset()
 
 		var wg sync.WaitGroup
 		wg.Add(1)
-		go recordAndWrite(readC, &wg, &r.ReadRecorder, r.ReadWriter)
+		go recordAndWrite(readRecordC, &wg, &r.ReadRecorder, r.ReadWriter)
 		wg.Add(1)
-		go recordAndWrite(writeC, &wg, &r.WriteRecorder, r.WriteWriter)
+		go recordAndWrite(writeRecordC, &wg, &r.WriteRecorder, r.WriteWriter)
+
+		var readCounter, writeCounter resultCounter
+
+		readC := readCounter.countAndFwdTo(readRecordC)
+		writeC := writeCounter.countAndFwdTo(writeRecordC)
+
+		msgLogger := openPeriodicLogger(r.Log, 10*time.Second, func(l Logger) {
+			rs, rf := readCounter.getAndReset()
+			ws, wf := writeCounter.getAndReset()
+			l.Printf("since last mesg: %d good, %d errored reads; %d good, %d errored writes", rs, rf, ws, wf)
+		})
 
 		args := issueArgs{
 			db:          r.DB,
@@ -208,6 +326,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		close(readC)
 		close(writeC)
 		wg.Wait()
+		msgLogger.Close()
 	}
 	return nil
 }

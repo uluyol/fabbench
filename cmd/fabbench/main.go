@@ -149,6 +149,7 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 	defer db.Close()
 
 	l := bench.Loader{
+		Log:        log.New(os.Stderr, "fabbench: load: ", log.LstdFlags),
 		DB:         db,
 		Config:     *bcfg,
 		Rand:       rand.New(rand.NewSource(rand.Int63())),
@@ -213,6 +214,7 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 	defer writeW.Close()
 
 	r := bench.Runner{
+		Log:         log.New(os.Stderr, "fabbench: run: ", log.LstdFlags),
 		DB:          db,
 		Config:      *bcfg,
 		Rand:        rand.New(rand.NewSource(rand.Int63())),
