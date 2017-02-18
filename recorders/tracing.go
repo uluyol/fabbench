@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -54,7 +55,7 @@ func (t *AsyncTrace) Close() {
 // We need to consume this and produce structured data.
 
 func NewTraceConsumer(c chan<- *proto.TraceInfo) io.Writer {
-	return &traceConsumer{c: c, curTrace: new(proto.TraceInfo)}
+	return &traceConsumer{c: c, curTrace: nil}
 }
 
 type traceConsumer struct {
@@ -101,7 +102,15 @@ func (tc *traceConsumer) Write(b []byte) (n int, err error) {
 			for i := range fields {
 				f := fields[i]
 				if bytes.HasPrefix(f, bCoordinator) && i+1 < len(fields) {
-					tc.curTrace.CoordinatorAddr = fields[i+1]
+					ip := net.ParseIP(string(fields[i+1]))
+					if ip == nil {
+						tc.curTrace = nil
+						break
+					}
+					if ip.To4() != nil {
+						ip = ip.To4()
+					}
+					tc.curTrace.CoordinatorAddr = []byte(ip)
 				} else if bytes.HasPrefix(f, bDuration) && i+1 < len(fields) {
 					d, _ := time.ParseDuration(string(fields[i+1]))
 					d /= time.Microsecond
@@ -140,7 +149,11 @@ func (tc *traceConsumer) Write(b []byte) (n int, err error) {
 			for i := range fields {
 				f := fields[i]
 				if bytes.HasPrefix(f, bSource) && i+1 < len(fields) {
-					ev.Source = fields[i+1]
+					ip := net.ParseIP(string(fields[i+1]))
+					if ip != nil && ip.To4() != nil {
+						ip = ip.To4()
+					}
+					ev.Source = []byte(ip)
 				} else if bytes.HasPrefix(f, bElapsed) && i+1 < len(fields) {
 					dus, _ := strconv.ParseInt(string(fields[i+1]), 10, 32)
 					ev.DurationMicros = int32(dus)
