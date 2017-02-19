@@ -15,17 +15,18 @@ import (
 )
 
 type conf struct {
-	ClientRetries      *int   `json:"clientRetries",omitempty`
-	NumRetries         *int   `json:"numRetries,omitempty"`
-	NumConns           *int   `json:"numConns,omitempty"`
-	ReadConsistency    string `json:"readConsistency"`
-	WriteConsistency   string `json:"writeConsistency"`
-	Keyspace           string `json:"keyspace"`
-	Table              string `json:"table"`
-	ReplicationFactor  *int   `json:"replicationFactor,omitempty"`
-	KeyCaching         string `json:"keyCaching"`
-	CompactionStrategy string `json:"compactionStrategy"`
-	Timeout            string `json:"timeout"`
+	ClientRetries        *int   `json:"clientRetries",omitempty`
+	NumRetries           *int   `json:"numRetries,omitempty"`
+	NumConns             *int   `json:"numConns,omitempty"`
+	ReadConsistency      string `json:"readConsistency"`
+	WriteConsistency     string `json:"writeConsistency"`
+	Keyspace             string `json:"keyspace"`
+	Table                string `json:"table"`
+	ReplicationFactor    *int   `json:"replicationFactor,omitempty"`
+	KeyCaching           string `json:"keyCaching"`
+	CompactionStrategy   string `json:"compactionStrategy"`
+	LeveledSSTableSizeMB *int   `json:"leveledSSTableSizeMB"`
+	Timeout              string `json:"timeout"`
 
 	TraceData *string `json:"traceData",omitempty`
 	TraceRate *int32  `json:"traceRate",omitempty`
@@ -42,6 +43,7 @@ func (c *conf) fillDefaults() {
 		{&c.NumRetries, 4},
 		{&c.ReplicationFactor, 3},
 		{&c.NumConns, 4},
+		{&c.LeveledSSTableSizeMB, 160},
 	}
 	for _, f := range intFields {
 		if *f.val == nil {
@@ -94,7 +96,7 @@ type client struct {
 	}
 
 	rat     *recorders.AsyncTrace
-	wat *recorders.AsyncTrace
+	wat     *recorders.AsyncTrace
 	rtracer gocql.Tracer
 	wtracer gocql.Tracer
 
@@ -212,8 +214,8 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 		readConsistency:  readConsistency,
 		writeConsistency: writeConsistency,
 		conf:             cfg,
-		rat:               rat,
-		wat: wat,
+		rat:              rat,
+		wat:              wat,
 	}
 	return c, nil
 }
@@ -239,8 +241,8 @@ func (c *client) Init(ctx context.Context) error {
 		return fmt.Errorf("unable to create keyspace %s: %v", ks, err)
 	}
 	q = session.Query(fmt.Sprintf(
-		"CREATE TABLE %s.%s (vkey varchar primary key, vval varchar)",
-		ks, c.conf.Table))
+		"CREATE TABLE %s.%s (vkey varchar primary key, vval varchar) WITH compaction = {'class': '%s', 'sstable_size_in_mb': %d} AND caching = {'keys': '%s'}",
+		ks, c.conf.Table, c.conf.CompactionStrategy, *c.conf.LeveledSSTableSizeMB, c.conf.KeyCaching))
 	if err := q.WithContext(ctx).Exec(); err != nil {
 		return fmt.Errorf("unable to create table %s: %v", c.conf.Table, err)
 	}

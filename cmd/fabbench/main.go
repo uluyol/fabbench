@@ -34,17 +34,18 @@ CONFIG FORMAT
 
 	For cassandra, the schema for db.options is
 		{
-			"clientRetries":      INT,    // optional
-			"numRetries":         INT,    // optional
-			"numConns":           INT,    // optional
-			"readConsistency":    STRING, // default: ONE
-			"writeConsistency":   STRING, // default: ONE
-			"keyspace":           STRING, // optional
-			"table":              STRING, // optional
-			"replicationFactor":  INT,
-			"keyCaching":         STRING,
-			"compactionStrategy": STRING,
-			"timeout":            STRING, // default: 5s, time.Duration
+			"clientRetries":        INT,    // optional
+			"numRetries":           INT,    // optional
+			"numConns":             INT,    // optional
+			"readConsistency":      STRING, // default: ONE
+			"writeConsistency":     STRING, // default: ONE
+			"keyspace":             STRING, // optional
+			"table":                STRING, // optional
+			"replicationFactor":    INT,
+			"keyCaching":           STRING,
+			"compactionStrategy":   STRING,
+			"leveledSSTableSizeMB": INT     // default: 160
+			"timeout":              STRING, // default: 5s, time.Duration
 
 			"traceData": STRING, // path to store traces
 			"traceRate": INT     // freq for tracing i.e. every N requests
