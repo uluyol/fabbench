@@ -93,8 +93,10 @@ type client struct {
 		err  error
 	}
 
-	at     *recorders.AsyncTrace
-	tracer gocql.Tracer
+	rat     *recorders.AsyncTrace
+	wat *recorders.AsyncTrace
+	rtracer gocql.Tracer
+	wtracer gocql.Tracer
 
 	getQPool sync.Pool
 	putQPool sync.Pool
@@ -105,16 +107,21 @@ type client struct {
 func (c *client) getSession() (*gocql.Session, error) {
 	c.session.once.Do(func() {
 		c.session.s, c.session.err = c.cluster.CreateSession()
-		c.tracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.at.C))
+		c.rtracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.rat.C))
+		c.wtracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.wat.C))
 	})
 
 	return c.session.s, c.session.err
 }
 
-func (c *client) traceQuery(q *gocql.Query) *gocql.Query {
-	if c.tracer != nil {
+func (c *client) traceQuery(q *gocql.Query, read bool) *gocql.Query {
+	if c.rtracer != nil && c.wtracer != nil {
+		tracer := c.rtracer
+		if !read {
+			tracer = c.wtracer
+		}
 		if atomic.AddInt32(&c.opCount, 1)%*c.conf.TraceRate == 0 {
-			return q.Trace(c.tracer)
+			return q.Trace(tracer)
 		}
 	}
 	return q
@@ -184,14 +191,20 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 
 	cluster.Keyspace = cfg.Keyspace
 
-	var at *recorders.AsyncTrace
+	var rat, wat *recorders.AsyncTrace
 	if cfg.TraceRate != nil && cfg.TraceData != nil {
-		f, err := os.Create(*cfg.TraceData)
+		rf, err := os.Create(*cfg.TraceData + "-ro.gz")
 		if err != nil {
-			return nil, fmt.Errorf("unable to open trace file: %v", err)
+			return nil, fmt.Errorf("unable to open ro trace file: %v", err)
 		}
-		at = recorders.NewAsyncTrace(f)
-		go at.Consume()
+		wf, err := os.Create(*cfg.TraceData + "-wo.gz")
+		if err != nil {
+			return nil, fmt.Errorf("unable to open wo trace file: %v", err)
+		}
+		rat = recorders.NewAsyncTrace(rf)
+		wat = recorders.NewAsyncTrace(wf)
+		go rat.Consume()
+		go wat.Consume()
 	}
 
 	c := &client{
@@ -199,7 +212,8 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 		readConsistency:  readConsistency,
 		writeConsistency: writeConsistency,
 		conf:             cfg,
-		at:               at,
+		rat:               rat,
+		wat: wat,
 	}
 	return c, nil
 }
@@ -241,7 +255,7 @@ func (c *client) Get(ctx context.Context, key string) (string, error) {
 	q := c.getQuery(s)
 	var v string
 	for retry := 0; retry < *c.conf.ClientRetries; retry++ {
-		err := c.traceQuery(q.Bind(key).WithContext(ctx)).Scan(&v)
+		err := c.traceQuery(q.Bind(key).WithContext(ctx), true).Scan(&v)
 		switch err {
 		case gocql.ErrNoConnections:
 			// retry
@@ -262,7 +276,7 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 	q := c.putQuery(s)
 
 	for retry := 0; retry < *c.conf.ClientRetries; retry++ {
-		err := c.traceQuery(q.Bind(key, val).WithContext(ctx)).Exec()
+		err := c.traceQuery(q.Bind(key, val).WithContext(ctx), false).Exec()
 		switch err {
 		case gocql.ErrNoConnections:
 			// retry
@@ -276,7 +290,8 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 }
 
 func (c *client) Close() error {
-	c.at.Close()
+	c.rat.Close()
+	c.wat.Close()
 	return nil
 }
 
