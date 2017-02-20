@@ -249,6 +249,27 @@ func (c *client) Init(ctx context.Context) error {
 	return nil
 }
 
+func exponentialRetry(maxTries int, f func() error) error {
+	err := f()
+	if err == nil {
+		return nil
+	}
+	sleep := 5 * time.Millisecond
+	maxSleep := time.Second
+	for retry := 0; retry < maxTries; retry++ {
+		time.Sleep(sleep)
+		err = f()
+		if err == nil {
+			return nil
+		}
+		sleep *= 5
+		if sleep > maxSleep {
+			sleep = maxSleep
+		}
+	}
+	return err
+}
+
 func (c *client) Get(ctx context.Context, key string) (string, error) {
 	s, err := c.getSession()
 	if err != nil {
@@ -256,18 +277,11 @@ func (c *client) Get(ctx context.Context, key string) (string, error) {
 	}
 	q := c.getQuery(s)
 	var v string
-	for retry := 0; retry < *c.conf.ClientRetries; retry++ {
-		err := c.traceQuery(q.Bind(key).WithContext(ctx), true).Scan(&v)
-		switch err {
-		case gocql.ErrNoConnections:
-			// retry
-		default:
-			c.cacheGetQuery(q)
-			return v, err
-		}
-	}
+	err = exponentialRetry(*c.conf.ClientRetries, func() error {
+		return c.traceQuery(q.Bind(key).WithContext(ctx), true).Scan(&v)
+	})
 	c.cacheGetQuery(q)
-	return "", gocql.ErrNoConnections
+	return v, err
 }
 
 func (c *client) Put(ctx context.Context, key, val string) error {
@@ -276,19 +290,11 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 		return fmt.Errorf("unable to connect to db: %v", err)
 	}
 	q := c.putQuery(s)
-
-	for retry := 0; retry < *c.conf.ClientRetries; retry++ {
-		err := c.traceQuery(q.Bind(key, val).WithContext(ctx), false).Exec()
-		switch err {
-		case gocql.ErrNoConnections:
-			// retry
-		default:
-			c.cachePutQuery(q)
-			return err
-		}
-	}
+	err = exponentialRetry(*c.conf.ClientRetries, func() error {
+		return c.traceQuery(q.Bind(key, val).WithContext(ctx), false).Exec()
+	})
 	c.cachePutQuery(q)
-	return gocql.ErrNoConnections
+	return err
 }
 
 func (c *client) Close() error {
