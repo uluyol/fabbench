@@ -109,8 +109,12 @@ type client struct {
 func (c *client) getSession() (*gocql.Session, error) {
 	c.session.once.Do(func() {
 		c.session.s, c.session.err = c.cluster.CreateSession()
-		c.rtracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.rat.C))
-		c.wtracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.wat.C))
+		if c.rat != nil {
+			c.rtracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.rat.C))
+		}
+		if c.wat != nil {
+			c.wtracer = gocql.NewTraceWriter(c.session.s, recorders.NewTraceConsumer(c.wat.C))
+		}
 	})
 
 	return c.session.s, c.session.err
