@@ -298,8 +298,12 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 }
 
 func (c *client) Close() error {
-	c.rat.Close()
-	c.wat.Close()
+	if c.rat != nil {
+		c.rat.Close()
+	}
+	if c.wat != nil {
+		c.wat.Close()
+	}
 	return nil
 }
 
