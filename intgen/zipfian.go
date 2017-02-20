@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	"github.com/uluyol/fabbench/internal/fnv"
+	"github.com/uluyol/fabbench/internal/perm"
 )
 
 // A generator of a zipfian distribution. It produces a
@@ -134,66 +135,22 @@ func (g *ScrambledZipfian) Next() int64 {
 
 type MapScrambledZipfian struct {
 	g         *Zipfian
-	perm      []int
+	perm      perm.Int64
 	itemCount int64
 }
 
 func NewMapScrambledZipfian(randSrc rand.Source, nitems int64, theta float64) *MapScrambledZipfian {
 	return &MapScrambledZipfian{
 		g:         NewZipfian(randSrc, 0, nitems-1, theta, zetastatic(nitems, theta)),
-		perm:      rand.New(randSrc).Perm(int(nitems)),
+		perm:      perm.NewInt64(rand.New(randSrc), nitems),
 		itemCount: nitems,
 	}
 }
 
 func (g *MapScrambledZipfian) Next() int64 {
-	i := int(g.g.Next())
-	if i >= len(g.perm) || i < 0 {
+	i := g.g.Next()
+	if i >= g.itemCount || i < 0 {
 		panic(fmt.Errorf("invalid index: %d", i))
 	}
-	return int64(g.perm[i])
-}
-
-type ChangingZipfian struct {
-	g *MapScrambledZipfian
-
-	// cached to avoid allocations
-	remapSelection []int
-
-	ngen    int64
-	nchange int
-	pchange float32
-}
-
-func NewChangingZipfian(randSrc rand.Source, nitems int64, theta float64, nchange int, switchProb float32) *ChangingZipfian {
-	return &ChangingZipfian{
-		g:              NewMapScrambledZipfian(randSrc, nitems, theta),
-		remapSelection: make([]int, 0, int(float64(nitems)*float64(switchProb))),
-		nchange:        nchange,
-		pchange:        switchProb,
-	}
-}
-
-func (g *ChangingZipfian) changePerm() {
-	selected := g.remapSelection[:0]
-	for i := range g.g.perm {
-		toss := g.g.g.rand.Float32()
-		if toss < g.pchange {
-			selected = append(selected, i)
-		}
-	}
-	switchMap := g.g.g.rand.Perm(len(selected))
-	for si, sj := range switchMap {
-		src := switchMap[si]
-		dst := switchMap[sj]
-		g.g.perm[src], g.g.perm[dst] = g.g.perm[dst], g.g.perm[src]
-	}
-}
-
-func (g *ChangingZipfian) Next() int64 {
-	if g.ngen != 0 && g.ngen%int64(g.nchange) == 0 {
-		g.changePerm()
-	}
-	g.ngen++
-	return g.g.Next()
+	return g.perm.Of(i)
 }
