@@ -42,7 +42,7 @@ type uniform struct {
 
 func newUniform(rsrc rand.Source, mean, width float64) uniform {
 	min := int64(mean - mean*width)
-	max := int64(mean + mean*width)
+	max := int64(math.Ceil(mean + mean*width))
 	siz := max - min + 1 // since we draw rand numbers below siz
 	return uniform{min: min, siz: siz, r: rand.New(rsrc)}
 }
