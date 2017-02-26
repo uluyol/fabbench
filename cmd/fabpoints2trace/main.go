@@ -10,12 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/uluyol/fabbench/internal/ranges"
 )
 
 var (
 	runtime    = flag.Duration("runtime", 1*time.Hour, "runtime of total experiment")
 	maxQPS     = flag.Float64("maxqps", 0, "max qps to use")
 	minRT      = flag.Duration("minrt", 5*time.Second, "minimum runtime of any specific step")
+	maxRT      = flag.Duration("maxrt", 15*time.Second, "maximum runtime of any specific step")
 	minQPSDiff = flag.Int64("minqpsdiff", 1, "minimum change in qps across steps")
 	rwFrac     = flag.Float64("rw", 0.9, "frac of requests that are reads")
 	ad         = flag.String("ad", "poisson", "inter arrival distribution")
@@ -51,6 +54,22 @@ func filterRT(in <-chan [2]float64, minRT time.Duration) <-chan [2]float64 {
 				continue
 			}
 			out <- prev
+			prev = cur
+		}
+		out <- prev
+		close(out)
+	}()
+	return out
+}
+
+func dedup(in <-chan [2]float64) <-chan [2]float64 {
+	out := make(chan [2]float64)
+	go func() {
+		prev := <-in
+		for cur := range in {
+			if prev[0] != cur[0] {
+				out <- prev
+			}
 			prev = cur
 		}
 		out <- prev
@@ -118,12 +137,14 @@ func main() {
 		steps[i][1] = *maxQPS * steps[i][1] / maxY
 	}
 
-	filtered := chan2slice(filterRT(filterQPS(slice2chan(steps), *minQPSDiff), *minRT))
+	filtered := chan2slice(filterRT(dedup(filterQPS(slice2chan(steps), *minQPSDiff)), *minRT))
 
 	for i := 0; i < len(filtered)-1; i++ {
 		dur := time.Duration(filtered[i+1][0] - filtered[i][0])
 		qps := int64(filtered[i][1])
 
-		fmt.Printf("d=%s rw=%f qps=%d ad=%s rkd=%s wkd=%s\n", dur, *rwFrac, qps, *ad, *rkd, *wkd)
+		for _, chunk := range ranges.SplitDuration(dur, *maxRT) {
+			fmt.Printf("d=%s rw=%f qps=%d ad=%s rkd=%s wkd=%s\n", chunk, *rwFrac, qps, *ad, *rkd, *wkd)
+		}
 	}
 }
