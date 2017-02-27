@@ -17,7 +17,7 @@ func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: fabcdfs log.gz > cdfs.cs")
 		fmt.Fprintln(os.Stderr, "\nOUTPUT FORMAT")
-		fmt.Fprintln(os.Stderr, "\t#start StepNum UnixSec Nano")
+		fmt.Fprintln(os.Stderr, "\t#start StepNum=N NumSamples=K UnixTime=Sec,Nano")
 		fmt.Fprintln(os.Stderr, "\tStepNum,Percenile,Micros")
 		os.Exit(2)
 	}
@@ -41,9 +41,22 @@ func main() {
 		if err != nil {
 			break
 		}
-		fmt.Printf("#start %d %d %d\n", i, l.Start().Unix(), l.Start().Nanosecond())
-		for _, v := range l.AllVals() {
-			fmt.Printf("%d,%f,%d\n", i, v.Percentile, int64(v.Value/time.Microsecond))
+		allVals := l.AllVals()
+		fmt.Printf("#start StepNum=%d NumSamples=%d UnixTime=%d,%d\n", i, len(allVals), l.Start().Unix(), l.Start().Nanosecond())
+
+		prev := readers.HistVal{Value: -1, Percentile: -1}
+
+		for _, cur := range allVals {
+			if cur.Value/time.Microsecond != prev.Value/time.Microsecond {
+				if prev.Percentile >= 0 {
+					fmt.Printf("%d,%f,%d\n", i, prev.Percentile, prev.Value/time.Microsecond)
+				}
+			}
+			prev = cur
+		}
+
+		if prev.Percentile >= 0 {
+			fmt.Printf("%d,%f,%d\n", i, prev.Percentile, prev.Value/time.Microsecond)
 		}
 	}
 }
