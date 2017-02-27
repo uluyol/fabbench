@@ -15,6 +15,7 @@ import (
 var (
 	start = flag.Int64("start", 0, "filter from this start time (in unix seconds)")
 	end   = flag.Int64("end", -1, "filter from this end time (in unix seconds)")
+	merge = flag.Bool("merge", false, "merge points that have the same value in the ccdf")
 )
 
 func usage() {
@@ -69,7 +70,7 @@ func main() {
 		prev := readers.HistVal{Value: -1, Percentile: -1}
 
 		for _, cur := range allVals {
-			if cur.Value/time.Microsecond != prev.Value/time.Microsecond {
+			if !*merge || cur.Value/time.Microsecond != prev.Value/time.Microsecond {
 				if prev.Percentile >= 0 {
 					fmt.Printf("%d,%f,%d\n", i, prev.Percentile, prev.Value/time.Microsecond)
 				}
