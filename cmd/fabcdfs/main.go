@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"compress/gzip"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -11,18 +12,30 @@ import (
 	"github.com/uluyol/fabbench/readers"
 )
 
+var (
+	start = flag.Int64("start", 0, "filter from this start time (in unix seconds)")
+	end   = flag.Int64("end", -1, "filter from this end time (in unix seconds)")
+)
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: fabcdfs [flags] log.gz > cdfs.csv")
+	fmt.Fprintln(os.Stderr, "\nOUTPUT FORMAT")
+	fmt.Fprintln(os.Stderr, "\t#start StepNum=N NumSamples=K UnixTime=Sec,Nano")
+	fmt.Fprintln(os.Stderr, "\tStepNum,Percenile,Micros")
+	flag.PrintDefaults()
+	os.Exit(2)
+}
+
 func main() {
 	log.SetPrefix("fabcdfs: ")
 	log.SetFlags(0)
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: fabcdfs log.gz > cdfs.cs")
-		fmt.Fprintln(os.Stderr, "\nOUTPUT FORMAT")
-		fmt.Fprintln(os.Stderr, "\t#start StepNum=N NumSamples=K UnixTime=Sec,Nano")
-		fmt.Fprintln(os.Stderr, "\tStepNum,Percenile,Micros")
-		os.Exit(2)
+	flag.Usage = usage
+	flag.Parse()
+	if flag.NArg() != 1 {
+		usage()
 	}
 
-	f, err := os.Open(os.Args[1])
+	f, err := os.Open(flag.Arg(0))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,10 +49,19 @@ func main() {
 
 	br := bufio.NewReader(gr)
 
+	startTime := time.Unix(*start, 0)
+	endTime := time.Unix(*end, 0)
+	if *end == -1 {
+		endTime = time.Date(2050, time.January, 1, 1, 1, 1, 0, time.UTC)
+	}
+
 	for i := 0; ; i++ {
 		l, err := readers.ReadLatency(br)
 		if err != nil {
 			break
+		}
+		if l.Start().Before(startTime) || l.Start().After(endTime) {
+			continue
 		}
 		allVals := l.AllVals()
 		fmt.Printf("#start StepNum=%d NumSamples=%d UnixTime=%d,%d\n", i, len(allVals), l.Start().Unix(), l.Start().Nanosecond())
