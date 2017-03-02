@@ -74,6 +74,92 @@ func TestLatencyRecorderReaderRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLatencyRecorderReaderMulti(t *testing.T) {
+	var buf bytes.Buffer
+
+	var rec recorders.Latency
+	rec.Reset()
+	start1 := rec.Start()
+	rec.Record(0, nil)
+	rec.Record(time.Nanosecond, nil)
+	rec.Record(time.Microsecond, nil)
+	rec.Record(time.Millisecond, nil)
+	rec.Record(time.Second, nil)
+	rec.Record(2000*time.Millisecond, nil)
+	rec.Record(100000*time.Second, nil)
+	rec.Record(123123123123, errors.New("dummy0"))
+
+	if err := rec.WriteTo(&buf); err != nil {
+		t.Fatalf("unexpected error while writing 1: %v", err)
+	}
+
+	if start1 != rec.Start() {
+		t.Fatalf("unexpected start time difference after writing 1: first %v then %v", start1, rec.Start)
+	}
+
+	rec.Reset()
+	start2 := rec.Start()
+	rec.Record(time.Microsecond, nil)
+	rec.Record(time.Millisecond, nil)
+	rec.Record(time.Second, nil)
+	rec.Record(2000*time.Millisecond, nil)
+	rec.Record(100000*time.Second, nil)
+	rec.Record(123123123123, errors.New("dummy0"))
+
+	if err := rec.WriteTo(&buf); err != nil {
+		t.Fatalf("unexpected error while writing 2: %v", err)
+	}
+
+	if start2 != rec.Start() {
+		t.Fatalf("unexpected start time difference after writing 2: first %v then %v", start2, rec.Start)
+	}
+
+	rec.Reset()
+	start3 := rec.Start()
+	rec.Record(0, nil)
+	rec.Record(time.Nanosecond, nil)
+	rec.Record(time.Microsecond, nil)
+	rec.Record(time.Millisecond, nil)
+	rec.Record(100000*time.Second, nil)
+	rec.Record(123123123123, errors.New("dummy0"))
+
+	if err := rec.WriteTo(&buf); err != nil {
+		t.Fatalf("unexpected error while writing 3: %v", err)
+	}
+
+	// check written data
+
+	resTests := []struct {
+		start time.Time
+		len   int
+	}{
+		{start1, 8},
+		{start2, 6},
+		{start3, 6},
+	}
+
+	got := 0
+	for i, test := range resTests {
+		res, err := ReadLatency(&buf)
+		if err != nil {
+			t.Fatalf("unexpected error while reading %d: %v", i, err)
+		}
+
+		if !res.start.Equal(test.start) {
+			t.Errorf("different start times for %d: want %v got %v", i, test.start, rec.Start())
+		}
+
+		if len(res.AllVals()) != test.len {
+			t.Errorf("different lengths for %d: want %d got %d", i, test.len, len(res.AllVals()))
+		}
+		got++
+	}
+
+	if got != len(resTests) {
+		t.Errorf("wrote %d got %d", got, len(resTests))
+	}
+}
+
 func compareVals(t *testing.T, vals []HistVal, durations []time.Duration) {
 	if len(vals) != len(durations) {
 		t.Errorf("different lengths")
