@@ -56,30 +56,44 @@ func main() {
 		endTime = time.Date(2050, time.January, 1, 1, 1, 1, 0, time.UTC)
 	}
 
-	for i := 0; ; i++ {
-		l, err := readers.ReadLatency(br)
-		if err != nil {
-			break
+	l, err := readers.ReadLatency(br)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for i := range l.Hists {
+		hist := l.Hists[i]
+		errs := l.Errs[i]
+
+		start, ok := hist.StartTime()
+		if !ok {
+			start = time.Unix(0, 0)
 		}
-		if l.Start().Before(startTime) || l.Start().After(endTime) {
+		end, ok := hist.EndTime()
+		if !ok {
+			end = time.Date(2050, time.January, 1, 1, 1, 1, 0, time.UTC)
+		}
+
+		if start.Before(startTime) || end.After(endTime) {
 			continue
 		}
-		allVals := l.AllVals()
-		fmt.Printf("#start StepNum=%d NumSamples=%d UnixTime=%d,%d\n", i, len(allVals), l.Start().Unix(), l.Start().Nanosecond())
 
-		prev := readers.HistVal{Value: -1, Percentile: -1}
+		allVals := hist.AllVals()
+
+		fmt.Printf("#start StepNum=%d NumSamples=%d UnixStart=%d,%d UnixEnd=%d,%d Errs=%d\n",
+			i, hist.TotalCount(), start.Unix(), start.Nanosecond(),
+			end.Unix(), end.Nanosecond(), errs)
 
 		for _, cur := range allVals {
-			if !*merge || cur.Value/time.Microsecond != prev.Value/time.Microsecond {
-				if prev.Percentile >= 0 {
-					fmt.Printf("%d,%f,%d\n", i, prev.Percentile, prev.Value/time.Microsecond)
+			if *merge {
+				if cur.Count > 0 {
+					fmt.Printf("%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
+				}
+			} else {
+				for n := int64(0); n < cur.Count; n++ {
+					fmt.Printf("%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
 				}
 			}
-			prev = cur
-		}
-
-		if prev.Percentile >= 0 {
-			fmt.Printf("%d,%f,%d\n", i, prev.Percentile, prev.Value/time.Microsecond)
 		}
 	}
 }

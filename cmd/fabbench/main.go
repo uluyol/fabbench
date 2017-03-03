@@ -9,9 +9,12 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/subcommands"
 	"github.com/uluyol/fabbench/bench"
+	"github.com/uluyol/fabbench/recorders"
+	"github.com/uluyol/hdrhist"
 )
 
 const formatsDoc = `
@@ -214,14 +217,36 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 	writeW := gzip.NewWriter(writeF)
 	defer writeW.Close()
 
+	readLW := hdrhist.NewLogWriter(readW)
+	writeLW := hdrhist.NewLogWriter(writeW)
+
+	now := time.Now()
+	for _, lw := range [...]*hdrhist.LogWriter{readLW, writeLW} {
+		lw.WriteStartTime(now)
+		lw.SetBaseTime(now)
+		lw.WriteLegend()
+	}
+
+	hdrCfg := hdrhist.Config{
+		LowestDiscernible: int64(10 * time.Microsecond),
+		HighestTrackable:  int64(100 * time.Second),
+		SigFigs:           3,
+		AutoResize:        true,
+	}
+
+	readRec := recorders.NewLatency(hdrCfg)
+	writeRec := recorders.NewLatency(hdrCfg)
+
 	r := bench.Runner{
-		Log:         log.New(os.Stderr, "fabbench: run: ", log.LstdFlags),
-		DB:          db,
-		Config:      *bcfg,
-		Rand:        rand.New(rand.NewSource(rand.Int63())),
-		Trace:       trace,
-		ReadWriter:  readW,
-		WriteWriter: writeW,
+		Log:           log.New(os.Stderr, "fabbench: run: ", log.LstdFlags),
+		DB:            db,
+		Config:        *bcfg,
+		Rand:          rand.New(rand.NewSource(rand.Int63())),
+		Trace:         trace,
+		ReadRecorder:  readRec,
+		ReadWriter:    readLW,
+		WriteRecorder: writeRec,
+		WriteWriter:   writeLW,
 	}
 
 	if err := r.Run(ctx); err != nil {

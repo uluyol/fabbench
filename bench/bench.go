@@ -3,7 +3,6 @@ package bench
 import (
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -12,6 +11,7 @@ import (
 	"github.com/uluyol/fabbench/db"
 	"github.com/uluyol/fabbench/intgen"
 	"github.com/uluyol/fabbench/recorders"
+	"github.com/uluyol/hdrhist"
 )
 
 type Config struct {
@@ -214,10 +214,10 @@ type Runner struct {
 	Rand   *rand.Rand
 	Trace  []TraceStep
 
-	ReadRecorder  recorders.Latency
-	ReadWriter    io.Writer
-	WriteRecorder recorders.Latency
-	WriteWriter   io.Writer
+	ReadRecorder  *recorders.Latency
+	ReadWriter    *hdrhist.LogWriter
+	WriteRecorder *recorders.Latency
+	WriteWriter   *hdrhist.LogWriter
 }
 
 type result struct {
@@ -225,7 +225,7 @@ type result struct {
 	err     error
 }
 
-func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w io.Writer) {
+func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w *hdrhist.LogWriter) {
 	for res := range c {
 		rec.Record(res.latency, res.err)
 	}
@@ -260,6 +260,12 @@ func (c *resultCounter) getAndReset() (succ int32, fail int32) {
 	return succ, fail
 }
 
+// TODO: decide if we don't want these seeds to be constant
+const (
+	rkSeed = 8899
+	wkSeed = 9911
+)
+
 func (r *Runner) Run(ctx context.Context) error {
 	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), r.Config.ValSize)
 
@@ -272,8 +278,8 @@ func (r *Runner) Run(ctx context.Context) error {
 			return ctx.Err()
 		default: // don't wait
 		}
-		rig := makeSyncGen(ts.ReadKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
-		wig := makeSyncGen(ts.WriteKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
+		rig := makeSyncGen(ts.ReadKeyDist, rand.NewSource(rkSeed), r.Config.RecordCount)
+		wig := makeSyncGen(ts.WriteKeyDist, rand.NewSource(wkSeed), r.Config.RecordCount)
 		readKeyGen := stringGen{G: rig, Len: r.Config.KeySize}
 		writeKeyGen := stringGen{G: wig, Len: r.Config.KeySize}
 
@@ -285,9 +291,9 @@ func (r *Runner) Run(ctx context.Context) error {
 
 		var wg sync.WaitGroup
 		wg.Add(1)
-		go recordAndWrite(readRecordC, &wg, &r.ReadRecorder, r.ReadWriter)
+		go recordAndWrite(readRecordC, &wg, r.ReadRecorder, r.ReadWriter)
 		wg.Add(1)
-		go recordAndWrite(writeRecordC, &wg, &r.WriteRecorder, r.WriteWriter)
+		go recordAndWrite(writeRecordC, &wg, r.WriteRecorder, r.WriteWriter)
 
 		var readCounter, writeCounter resultCounter
 
