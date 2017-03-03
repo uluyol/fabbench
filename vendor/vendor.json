@@ -51,6 +51,24 @@
 			"revisionTime": "2016-01-25T11:53:50Z"
 		},
 		{
+			"checksumSHA1": "ynJSWoF6v+3zMnh9R0QmmG6iGV8=",
+			"path": "github.com/pkg/errors",
+			"revision": "248dadf4e9068a0b3e79f02ed0a610d935de5302",
+			"revisionTime": "2016-10-29T09:36:37Z"
+		},
+		{
+			"checksumSHA1": "3arWVYHzSldjlBGCs6Af7W1k2zI=",
+			"path": "github.com/uluyol/hdrhist",
+			"revision": "4b75a18148e22bb2f55a2590a50e23e1256c3b67",
+			"revisionTime": "2017-03-03T04:06:40Z"
+		},
+		{
+			"checksumSHA1": "2evFm658HYwvPJi/04/nCGbXa5k=",
+			"path": "github.com/uluyol/hdrhist/internal/bits",
+			"revision": "4b75a18148e22bb2f55a2590a50e23e1256c3b67",
+			"revisionTime": "2017-03-03T04:06:40Z"
+		},
+		{
 			"checksumSHA1": "Y+HGqEkYM15ir+J93MEaHdyFy0c=",
 			"path": "golang.org/x/net/context",
 			"revision": "6b27048ae5e6ad1ef927e72e437531493de612fe",
