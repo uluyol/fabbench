@@ -181,7 +181,7 @@ func makeSyncGen(d keyDist, rsrc rand.Source, nitems int64) intgen.Gen {
 	case kdUniform:
 		g = intgen.NewUniform(rsrc, nitems)
 	case kdZipfian:
-		g = intgen.NewMapScrambledZipfian(rsrc, nitems, d.zfTheta())
+		g = intgen.NewZipfianN(rsrc, nitems, d.zfTheta())
 	case kdLinear:
 		g = intgen.NewLinear(rsrc, nitems)
 	case kdLinStep:
@@ -260,12 +260,6 @@ func (c *resultCounter) getAndReset() (succ int32, fail int32) {
 	return succ, fail
 }
 
-// TODO: decide if we don't want these seeds to be constant
-const (
-	rkSeed = 8899
-	wkSeed = 9911
-)
-
 func (r *Runner) Run(ctx context.Context) error {
 	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), r.Config.ValSize)
 
@@ -278,8 +272,8 @@ func (r *Runner) Run(ctx context.Context) error {
 			return ctx.Err()
 		default: // don't wait
 		}
-		rig := makeSyncGen(ts.ReadKeyDist, rand.NewSource(rkSeed), r.Config.RecordCount)
-		wig := makeSyncGen(ts.WriteKeyDist, rand.NewSource(wkSeed), r.Config.RecordCount)
+		rig := makeSyncGen(ts.ReadKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
+		wig := makeSyncGen(ts.WriteKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
 		readKeyGen := stringGen{G: rig, Len: r.Config.KeySize}
 		writeKeyGen := stringGen{G: wig, Len: r.Config.KeySize}
 

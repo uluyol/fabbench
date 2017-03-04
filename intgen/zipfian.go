@@ -53,6 +53,10 @@ func NewZipfian(randSrc rand.Source, min, max int64, theta, zetan float64) *Zipf
 	}
 }
 
+func NewZipfianN(randSrc rand.Source, nitems int64, theta float64) *Zipfian {
+	return NewZipfian(randSrc, 0, nitems-1, theta, zetastatic(nitems, theta))
+}
+
 func NewSimpleZipfian(randSrc rand.Source, nitems int64, theta float64) *Zipfian {
 	return NewZipfian(randSrc, 0, nitems-1, theta, zetastatic(nitems, theta))
 }
