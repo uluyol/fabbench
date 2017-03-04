@@ -39,8 +39,8 @@ func (c *conf) fillDefaults() {
 		val **int
 		def int
 	}{
-		{&c.ClientRetries, 10},
-		{&c.NumRetries, 4},
+		{&c.ClientRetries, 0},
+		{&c.NumRetries, 2},
 		{&c.ReplicationFactor, 3},
 		{&c.NumConns, 4},
 		{&c.LeveledSSTableSizeMB, 160},
@@ -179,9 +179,12 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.ProtoVersion = 4
 	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: *cfg.NumRetries}
+	cluster.ConnectTimeout = timeout
 	cluster.Timeout = timeout
 	cluster.SocketKeepalive = 30 * time.Second
 	cluster.NumConns = *cfg.NumConns
+
+	cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
 
 	// Test that we can create a session.
 	// We don't know if the Keyspace exists yet,
