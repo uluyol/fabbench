@@ -47,8 +47,9 @@ CONFIG FORMAT
 			"replicationFactor":    INT,
 			"keyCaching":           STRING,
 			"compactionStrategy":   STRING,
-			"leveledSSTableSizeMB": INT     // default: 160
-			"timeout":              STRING, // default: 5s, time.Duration
+			"leveledSSTableSizeMB": INT,    // default: 160
+			"connectTimeout":       STRING, // default: 5s, time.Duration
+			"timeout":              STRING, // default: 600ms, time.Duration
 
 			"traceData": STRING, // path to store traces
 			"traceRate": INT     // freq for tracing i.e. every N requests

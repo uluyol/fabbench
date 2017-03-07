@@ -26,6 +26,7 @@ type conf struct {
 	KeyCaching           string `json:"keyCaching"`
 	CompactionStrategy   string `json:"compactionStrategy"`
 	LeveledSSTableSizeMB *int   `json:"leveledSSTableSizeMB"`
+	ConnectTimeout       string `json:"connectTimeout"`
 	Timeout              string `json:"timeout"`
 
 	TraceData *string `json:"traceData",omitempty`
@@ -61,7 +62,8 @@ func (c *conf) fillDefaults() {
 		{&c.Table, "udata"},
 		{&c.KeyCaching, "ALL"},
 		{&c.CompactionStrategy, "LeveledCompactionStrategy"},
-		{&c.Timeout, "5s"},
+		{&c.ConnectTimeout, "5s"},
+		{&c.Timeout, "600ms"},
 	}
 	for _, f := range strFields {
 		if *f.val == "" {
@@ -164,7 +166,12 @@ func (c *client) cachePutQuery(q *gocql.Query) { c.putQPool.Put(q) }
 func newClient(hosts []string, cfg *conf) (db.DB, error) {
 	timeout, err := time.ParseDuration(cfg.Timeout)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing timeout as time.Duration: %v")
+		return nil, fmt.Errorf("error parsing timeout as time.Duration: %v", err)
+	}
+
+	connTimeout, err := time.ParseDuration(cfg.ConnectTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing connect timeout as time.Duration: %v", err)
 	}
 
 	readConsistency, err := parseConsistency(cfg.ReadConsistency)
@@ -179,7 +186,7 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.ProtoVersion = 4
 	cluster.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: *cfg.NumRetries}
-	cluster.ConnectTimeout = timeout
+	cluster.ConnectTimeout = connTimeout
 	cluster.Timeout = timeout
 	cluster.SocketKeepalive = 30 * time.Second
 	cluster.NumConns = *cfg.NumConns
