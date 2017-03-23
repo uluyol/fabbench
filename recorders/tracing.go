@@ -98,6 +98,12 @@ func (tc *traceConsumer) Write(b []byte) (n int, err error) {
 				tc.c <- tc.curTrace
 			}
 			tc.curTrace = new(proto.TraceInfo)
+
+			// Use current time for request end.
+			// This is not accurate, but we can't do better
+			// with gocql's tracing API.
+			tc.curTrace.ReqEndTimeMillis = time.Now().Unix() * 1000
+
 			fields := bytes.FieldsFunc(buf, isNotNumLetterDot)
 			for i := range fields {
 				f := fields[i]
