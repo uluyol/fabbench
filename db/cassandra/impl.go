@@ -254,9 +254,14 @@ func (c *client) Init(ctx context.Context) error {
 	if err := q.WithContext(ctx).Exec(); err != nil {
 		return fmt.Errorf("unable to create keyspace %s: %v", ks, err)
 	}
+
+	compactionProps := ""
+	if c.conf.CompactionStrategy == "LeveledCompactionStrategy" {
+		compactionProps += fmt.Sprintf(", 'sstable_size_in_mb': %d", *c.conf.LeveledSSTableSizeMB)
+	}
 	q = session.Query(fmt.Sprintf(
-		"CREATE TABLE %s.%s (vkey varchar primary key, vval varchar) WITH compaction = {'class': '%s', 'sstable_size_in_mb': %d} AND caching = {'keys': '%s'}",
-		ks, c.conf.Table, c.conf.CompactionStrategy, *c.conf.LeveledSSTableSizeMB, c.conf.KeyCaching))
+		"CREATE TABLE %s.%s (vkey varchar primary key, vval varchar) WITH compaction = {'class': '%s'%s} AND caching = {'keys': '%s'}",
+		ks, c.conf.Table, c.conf.CompactionStrategy, compactionProps, c.conf.KeyCaching))
 	if err := q.WithContext(ctx).Exec(); err != nil {
 		return fmt.Errorf("unable to create table %s: %v", c.conf.Table, err)
 	}
