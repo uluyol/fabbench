@@ -46,11 +46,12 @@ type Logger interface {
 }
 
 type Loader struct {
-	Log        Logger
-	DB         db.DB
-	Config     Config
-	Rand       *rand.Rand
-	NumWorkers int
+	Log             Logger
+	DB              db.DB
+	Config          Config
+	Rand            *rand.Rand
+	NumWorkers      int
+	AllowedFailFrac float64
 
 	LoadStart int64
 	LoadCount int64
@@ -130,6 +131,7 @@ func (l *Loader) Run(ctx context.Context) error {
 	}
 
 	nops := new(counter)
+	nfail := new(counter)
 	errs := make(chan error)
 
 	msgLogger := openPeriodicLogger(l.Log, 10*time.Second, func(l Logger) {
@@ -149,9 +151,12 @@ func (l *Loader) Run(ctx context.Context) error {
 			for i := nops.getAndInc(); i < loadCount; i = nops.getAndInc() {
 				key := keyGen.Next()
 				val := valGen.Next()
-				retErr = l.DB.Put(newCtx, key, val)
-				if retErr != nil {
-					return
+				if err := l.DB.Put(newCtx, key, val); err != nil {
+					curFail := nfail.getAndInc()
+					if float64(curFail)/float64(loadCount) > l.AllowedFailFrac {
+						retErr = err
+						return
+					}
 				}
 				select {
 				case <-newCtx.Done():

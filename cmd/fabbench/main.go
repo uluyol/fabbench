@@ -127,9 +127,10 @@ func (c *mkTableCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...inte
 }
 
 type loadCmd struct {
-	configPath string
-	hostsCSV   string
-	workers    int
+	configPath  string
+	hostsCSV    string
+	workers     int
+	maxFailFrac float64
 
 	loadStart int64
 	loadCount int64
@@ -154,6 +155,7 @@ func (c *loadCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.configPath, "config", "", "config file path")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
 	fs.IntVar(&c.workers, "workers", 20, "number of concurrent workers")
+	fs.Float64Var(&c.maxFailFrac, "maxfailfrac", 0.01, "fraction of records that are allowed to fail to load")
 
 	fs.Int64Var(&c.loadStart, "start", 0, "index to start loading from (use either start+count, or nshard+shardi)")
 	fs.Int64Var(&c.loadCount, "count", -1, "number of records to load (use either start+count, or nshard+shardi)")
@@ -182,13 +184,14 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 	}
 
 	l := bench.Loader{
-		Log:        log.New(os.Stderr, "fabbench: load: ", log.LstdFlags),
-		DB:         db,
-		Config:     *bcfg,
-		Rand:       rand.New(rand.NewSource(rand.Int63())),
-		NumWorkers: c.workers,
-		LoadStart:  loadStart,
-		LoadCount:  loadCount,
+		Log:             log.New(os.Stderr, "fabbench: load: ", log.LstdFlags),
+		DB:              db,
+		Config:          *bcfg,
+		Rand:            rand.New(rand.NewSource(rand.Int63())),
+		NumWorkers:      c.workers,
+		AllowedFailFrac: c.maxFailFrac,
+		LoadStart:       loadStart,
+		LoadCount:       loadCount,
 	}
 
 	if err := l.Run(ctx); err != nil {
