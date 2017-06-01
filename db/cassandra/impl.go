@@ -208,7 +208,7 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 	cluster.Keyspace = cfg.Keyspace
 
 	var rat, wat *recorders.AsyncTrace
-	if cfg.TraceRate != nil && cfg.TraceData != nil {
+	if cfg.TraceRate != nil && cfg.TraceData != nil && *cfg.TraceData != "" {
 		rf, err := os.Create(*cfg.TraceData + "-ro.gz")
 		if err != nil {
 			return nil, fmt.Errorf("unable to open ro trace file: %v", err)
