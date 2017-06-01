@@ -16,3 +16,20 @@ func SplitDuration(v time.Duration, maxSize time.Duration) []time.Duration {
 	chunks[len(chunks)-1] = v - cum
 	return chunks
 }
+
+type WorkShard struct {
+	Start int64
+	Count int64
+}
+
+func SplitRecords(n int64, numWorkers int64) []WorkShard {
+	maxSize := (n + numWorkers - 1) / numWorkers
+	chunks := make([]WorkShard, numWorkers)
+	var cum int64
+	for i := int64(0); i < numWorkers-1; i++ {
+		chunks[i] = WorkShard{Start: cum, Count: maxSize}
+		cum += maxSize
+	}
+	chunks[len(chunks)-1] = WorkShard{Start: cum, Count: n - cum}
+	return chunks
+}

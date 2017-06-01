@@ -34,7 +34,7 @@ func loadConfig(hosts []string, path string) (db.DB, *bench.Config, error) {
 
 	db, err := db.Dial(allCfg.DB.Name, hosts, []byte(allCfg.DB.Options))
 	if err != nil {
-		return nil, nil, fmt.Errorf("error connecting to db: %v", err)
+		return nil, &allCfg.Workload, fmt.Errorf("error connecting to db: %v", err)
 	}
 	return db, &allCfg.Workload, nil
 }

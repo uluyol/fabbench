@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/subcommands"
 	"github.com/uluyol/fabbench/bench"
+	"github.com/uluyol/fabbench/internal/ranges"
 	"github.com/uluyol/fabbench/recorders"
 	"github.com/uluyol/hdrhist"
 )
@@ -129,20 +130,36 @@ type loadCmd struct {
 	configPath string
 	hostsCSV   string
 	workers    int
-	loadStart  int64
-	loadCount  int64
+
+	loadStart int64
+	loadCount int64
+
+	nshard int64
+	shardi int64
 }
 
 func (*loadCmd) Name() string     { return "load" }
 func (*loadCmd) Synopsis() string { return "load data into the database" }
-func (*loadCmd) Usage() string    { return "" }
+func (*loadCmd) Usage() string {
+	return `fabbench load populates the database.
+
+For loading from multiple processes in parallel (potentially across machines),
+use either the -start and -count flags, or the -nshard and -shardi flags.
+If both pairs of flags are passed, one set will be used arbitrarily.
+
+`
+}
 
 func (c *loadCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.configPath, "config", "", "config file path")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
 	fs.IntVar(&c.workers, "workers", 20, "number of concurrent workers")
-	fs.Int64Var(&c.loadStart, "start", 0, "index to start loading from")
-	fs.Int64Var(&c.loadCount, "count", -1, "records to load, use with start for parallel clients")
+
+	fs.Int64Var(&c.loadStart, "start", 0, "index to start loading from (use either start+count, or nshard+shardi)")
+	fs.Int64Var(&c.loadCount, "count", -1, "number of records to load (use either start+count, or nshard+shardi)")
+
+	fs.Int64Var(&c.nshard, "nshard", 0, "number of parallel worker processes (use either start+count, or nshard+shardi)")
+	fs.Int64Var(&c.shardi, "shardi", 0, "parallel worker process index (use either start+count, or nshard+shardi)")
 }
 
 func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
@@ -153,14 +170,25 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 	}
 	defer db.Close()
 
+	loadStart := c.loadStart
+	loadCount := c.loadCount
+	if c.nshard > 0 {
+		shards := ranges.SplitRecords(bcfg.RecordCount, c.nshard)
+		if c.shardi < 0 || c.shardi > int64(len(shards)) {
+			log.Fatalf("invalid value for -shardi: %d, number of shards: %d", c.shardi, len(shards))
+		}
+		loadStart = shards[c.shardi].Start
+		loadCount = shards[c.shardi].Count
+	}
+
 	l := bench.Loader{
 		Log:        log.New(os.Stderr, "fabbench: load: ", log.LstdFlags),
 		DB:         db,
 		Config:     *bcfg,
 		Rand:       rand.New(rand.NewSource(rand.Int63())),
 		NumWorkers: c.workers,
-		LoadStart:  c.loadStart,
-		LoadCount:  c.loadCount,
+		LoadStart:  loadStart,
+		LoadCount:  loadCount,
 	}
 
 	if err := l.Run(ctx); err != nil {
