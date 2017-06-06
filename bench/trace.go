@@ -127,6 +127,9 @@ func parseKeyDist(raw string) (keyDist, error) {
 	case lower == "linear":
 		return keyDist{Kind: kdLinear}, nil
 	case strings.HasPrefix(lower, "zipfian"):
+		if !strings.HasPrefix(lower, "zipfian-") {
+			return keyDist{}, fmt.Errorf("missing theta for zipfian")
+		}
 		t := strings.TrimPrefix(lower, "zipfian-")
 		theta, err := strconv.ParseFloat(t, 64)
 		if err != nil {
@@ -232,7 +235,7 @@ func ParseTrace(r io.Reader) ([]TraceStep, error) {
 			continue
 		}
 		if err := parseTraceStep(s.Text(), &step); err != nil {
-			return nil, fmt.Errorf("%d: %v", err)
+			return nil, fmt.Errorf("%d: %v", lineno, err)
 		}
 		steps = append(steps, step)
 	}

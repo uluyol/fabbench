@@ -23,9 +23,10 @@ type AsyncTrace struct {
 }
 
 func NewAsyncTrace(w io.WriteCloser) *AsyncTrace {
+	gw, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
 	t := &AsyncTrace{
 		uw:     w,
-		w:      gzip.NewWriter(w),
+		w:      gw,
 		C:      make(chan *proto.TraceInfo, 10),
 		closed: make(chan struct{}),
 	}
@@ -39,10 +40,10 @@ func (t *AsyncTrace) Consume() {
 	defer t.w.Close()
 	for ti := range t.C {
 		if ti == nil {
+			t.w.Flush()
 			break
 		}
 		proto.WriteDelimitedTo(t.w, ti)
-		t.w.Flush()
 	}
 }
 

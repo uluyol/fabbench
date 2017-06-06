@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/subcommands"
+	"github.com/pkg/profile"
 	"github.com/uluyol/fabbench/bench"
 	"github.com/uluyol/fabbench/internal/ranges"
 	"github.com/uluyol/fabbench/recorders"
@@ -86,6 +87,40 @@ TRACE FORMAT
 		d=10m rw=0.5 qps=500 ad=poisson rkd=zipfian-0.99999 wkd=uniform
 `
 
+type nopStop struct{}
+
+func (nopStop) Stop() {}
+
+type baseFlags struct {
+	profPath string
+	prof     string
+}
+
+func (f *baseFlags) setupProfiling() interface {
+	Stop()
+} {
+	if f.profPath != "" {
+		opts := []func(*profile.Profile){profile.ProfilePath(f.profPath)}
+		switch f.prof {
+		case "cpu":
+			opts = append(opts, profile.CPUProfile)
+		case "mutex":
+			opts = append(opts, profile.MutexProfile)
+		case "block":
+			opts = append(opts, profile.BlockProfile)
+		default:
+			// ignore
+		}
+		return profile.Start(opts...)
+	}
+	return nopStop{}
+}
+
+func (f *baseFlags) SetFlags(fs *flag.FlagSet) {
+	fs.StringVar(&f.profPath, "profiledir", "", "turn profiling on and write profiles to this directory")
+	fs.StringVar(&f.prof, "profile", "cpu", "resource to profile (possible values: cpu, mutex, block)")
+}
+
 type formatsCmd struct{}
 
 func (formatsCmd) Name() string           { return "formats" }
@@ -101,6 +136,7 @@ func (formatsCmd) Execute(_ context.Context, _ *flag.FlagSet, args ...interface{
 type mkTableCmd struct {
 	configPath string
 	hostsCSV   string
+	baseFlags
 }
 
 func (*mkTableCmd) Name() string     { return "mktable" }
@@ -110,9 +146,11 @@ func (*mkTableCmd) Usage() string    { return "" }
 func (c *mkTableCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.configPath, "config", "", "config file path")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
+	c.baseFlags.SetFlags(fs)
 }
 
 func (c *mkTableCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
+	defer c.setupProfiling().Stop()
 	hosts := strings.Split(c.hostsCSV, ",")
 	db, _, err := loadConfig(hosts, c.configPath)
 	if err != nil {
@@ -137,6 +175,8 @@ type loadCmd struct {
 
 	nshard int64
 	shardi int64
+
+	baseFlags
 }
 
 func (*loadCmd) Name() string     { return "load" }
@@ -162,9 +202,11 @@ func (c *loadCmd) SetFlags(fs *flag.FlagSet) {
 
 	fs.Int64Var(&c.nshard, "nshard", 0, "number of parallel worker processes (use either start+count, or nshard+shardi)")
 	fs.Int64Var(&c.shardi, "shardi", 0, "parallel worker process index (use either start+count, or nshard+shardi)")
+	c.baseFlags.SetFlags(fs)
 }
 
 func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
+	defer c.setupProfiling().Stop()
 	hosts := strings.Split(c.hostsCSV, ",")
 	db, bcfg, err := loadConfig(hosts, c.configPath)
 	if err != nil {
@@ -206,6 +248,7 @@ type runCmd struct {
 	tracePath  string
 	outPre     string
 	hostsCSV   string
+	baseFlags
 }
 
 func (*runCmd) Name() string     { return "run" }
@@ -217,9 +260,11 @@ func (c *runCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.tracePath, "trace", "", "trace file path")
 	fs.StringVar(&c.outPre, "out", "", "output path prefix (will add -ro.gz and -wo.gz)")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
+	c.baseFlags.SetFlags(fs)
 }
 
 func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interface{}) subcommands.ExitStatus {
+	defer c.setupProfiling().Stop()
 	hosts := strings.Split(c.hostsCSV, ",")
 	db, bcfg, err := loadConfig(hosts, c.configPath)
 	if err != nil {
@@ -244,9 +289,9 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 	}
 	defer writeF.Close()
 
-	readW := gzip.NewWriter(readF)
+	readW, _ := gzip.NewWriterLevel(readF, gzip.BestSpeed)
 	defer readW.Close()
-	writeW := gzip.NewWriter(writeF)
+	writeW, _ := gzip.NewWriterLevel(writeF, gzip.BestSpeed)
 	defer writeW.Close()
 
 	readLW := hdrhist.NewLogWriter(readW)

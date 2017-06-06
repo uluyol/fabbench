@@ -57,6 +57,12 @@
 			"revisionTime": "2016-10-29T09:36:37Z"
 		},
 		{
+			"checksumSHA1": "C3yiSMdTQxSY3xqKJzMV9T+KnIc=",
+			"path": "github.com/pkg/profile",
+			"revision": "5b67d428864e92711fcbd2f8629456121a56d91f",
+			"revisionTime": "2017-05-09T09:25:25Z"
+		},
+		{
 			"checksumSHA1": "3arWVYHzSldjlBGCs6Af7W1k2zI=",
 			"path": "github.com/uluyol/hdrhist",
 			"revision": "4b75a18148e22bb2f55a2590a50e23e1256c3b67",
