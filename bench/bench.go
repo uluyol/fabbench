@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	_           struct{}
 	RecordCount int64 `json:"recordCount"`
 	KeySize     int   `json:"keySize"`
 	ValSize     int   `json:"valSize"`
@@ -46,6 +47,7 @@ type Logger interface {
 }
 
 type Loader struct {
+	_               struct{}
 	Log             Logger
 	DB              db.DB
 	Config          Config
@@ -213,11 +215,13 @@ func makeArrivalDist(d arrivalDist, rsrc rand.Source, meanPeriod float64) intgen
 }
 
 type Runner struct {
-	Log    Logger
-	DB     db.DB
-	Config Config
-	Rand   *rand.Rand
-	Trace  []TraceStep
+	_          struct{}
+	Log        Logger
+	DB         db.DB
+	Config     Config
+	Rand       *rand.Rand
+	Trace      []TraceStep
+	ReqTimeout time.Duration
 
 	ReadRecorder  *recorders.Latency
 	ReadWriter    *hdrhist.LogWriter
@@ -314,6 +318,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			rand:        r.Rand,
 			readC:       readC,
 			writeC:      writeC,
+			reqTimeout:  r.ReqTimeout,
 		}
 
 		if ts.ArrivalDist.Kind == adClosed {
@@ -343,6 +348,7 @@ type issueArgs struct {
 	valGen      *valueGen
 	rwRatio     float32
 	rand        *rand.Rand
+	reqTimeout  time.Duration
 
 	readC, writeC chan<- result
 }
@@ -360,22 +366,23 @@ func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execD
 		wait := time.Duration(arrivalGen.Next()) * 10 * time.Microsecond
 		time.Sleep(wait)
 		reqStart := time.Now()
+		reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 		wg.Add(1)
-		go func(reqStart time.Time, isRead bool) {
+		go func(ctx context.Context, reqStart time.Time, isRead bool) {
 			defer wg.Done()
 			if isRead {
 				key := args.readKeyGen.Next()
-				_, err := args.db.Get(ctx, key)
+				_, err := args.db.Get(reqCtx, key)
 				latency := time.Since(reqStart)
 				args.readC <- result{latency, err}
 			} else {
 				key := args.writeKeyGen.Next()
 				val := args.valGen.Next()
-				err := args.db.Put(ctx, key, val)
+				err := args.db.Put(reqCtx, key, val)
 				latency := time.Since(start)
 				args.writeC <- result{latency, err}
 			}
-		}(reqStart, nextIsRead)
+		}(reqCtx, reqStart, nextIsRead)
 	}
 	wg.Wait()
 }
@@ -394,16 +401,17 @@ func issueClosed(ctx context.Context, args issueArgs, workers int, totalOps int6
 					break
 				default: // don't wait
 				}
+				reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 				start := time.Now()
 				if rng.Float32() < args.rwRatio {
 					key := args.readKeyGen.Next()
-					_, err := args.db.Get(ctx, key)
+					_, err := args.db.Get(reqCtx, key)
 					latency := time.Since(start)
 					args.readC <- result{latency, err}
 				} else {
 					key := args.writeKeyGen.Next()
 					val := args.valGen.Next()
-					err := args.db.Put(ctx, key, val)
+					err := args.db.Put(reqCtx, key, val)
 					latency := time.Since(start)
 					args.writeC <- result{latency, err}
 				}
