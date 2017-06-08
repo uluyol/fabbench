@@ -36,23 +36,9 @@ func main() {
 	log.SetFlags(0)
 	flag.Usage = usage
 	flag.Parse()
-	if flag.NArg() != 1 {
+	if flag.NArg() < 1 {
 		usage()
 	}
-
-	f, err := os.Open(flag.Arg(0))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer gr.Close()
-
-	br := bufio.NewReader(gr)
 
 	startTime := time.Unix(*start, 0)
 	endTime := time.Unix(*end, 0)
@@ -60,15 +46,41 @@ func main() {
 		endTime = time.Date(2050, time.January, 1, 1, 1, 1, 0, time.UTC)
 	}
 
-	l, err := readers.ReadLatency(br)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
 
 	accum := hdrhist.New(3)
+
+	for _, p := range flag.Args() {
+		if err := procFile(p, w, startTime, endTime, accum); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if *mergeTS {
+		fprint(w, accum, *merge, -1)
+	}
+}
+
+func procFile(p string, w io.Writer, startTime, endTime time.Time, accum *hdrhist.Hist) error {
+	f, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gr.Close()
+
+	br := bufio.NewReader(gr)
+
+	l, err := readers.ReadLatency(br)
+	if err != nil {
+		return err
+	}
 
 	for i := range l.Hists {
 		hist := l.Hists[i]
@@ -97,10 +109,7 @@ func main() {
 			accum.Add(hist)
 		}
 	}
-
-	if *mergeTS {
-		fprint(w, accum, *merge, -1)
-	}
+	return nil
 }
 
 func fprint(w io.Writer, h *hdrhist.Hist, mergeVals bool, iter int) {
