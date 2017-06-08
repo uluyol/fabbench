@@ -61,6 +61,9 @@ func main() {
 		log.Fatal(err)
 	}
 
+	w := bufio.NewWriter(os.Stdout)
+	defer w.Flush()
+
 	for i := range l.Hists {
 		hist := l.Hists[i]
 		errs := l.Errs[i]
@@ -80,18 +83,18 @@ func main() {
 
 		allVals := hist.AllVals()
 
-		fmt.Printf("#start StepNum=%d NumSamples=%d UnixStart=%d,%d UnixEnd=%d,%d Errs=%d\n",
+		fmt.Fprintf(w, "#start StepNum=%d NumSamples=%d UnixStart=%d,%d UnixEnd=%d,%d Errs=%d\n",
 			i, hist.TotalCount(), start.Unix(), start.Nanosecond(),
 			end.Unix(), end.Nanosecond(), errs)
 
 		for _, cur := range allVals {
 			if *merge {
 				if cur.Count > 0 {
-					fmt.Printf("%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
+					fmt.Fprintf(w, "%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
 				}
 			} else {
 				for n := int64(0); n < cur.Count; n++ {
-					fmt.Printf("%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
+					fmt.Fprintf(w, "%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
 				}
 			}
 		}
