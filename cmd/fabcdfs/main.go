@@ -5,17 +5,21 @@ import (
 	"compress/gzip"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/uluyol/fabbench/readers"
+	"github.com/uluyol/hdrhist"
 )
 
 var (
-	start = flag.Int64("start", 0, "filter from this start time (in unix seconds)")
-	end   = flag.Int64("end", -1, "filter from this end time (in unix seconds)")
-	merge = flag.Bool("merge", false, "merge points that have the same value in the ccdf")
+	start   = flag.Int64("start", 0, "filter from this start time (in unix seconds)")
+	end     = flag.Int64("end", -1, "filter from this end time (in unix seconds)")
+	merge   = flag.Bool("merge", false, "merge points that have the same value in the cdf")
+	mergeTS = flag.Bool("mergets", false, "merge timesteps when outputting cdf")
 )
 
 func usage() {
@@ -64,6 +68,8 @@ func main() {
 	w := bufio.NewWriter(os.Stdout)
 	defer w.Flush()
 
+	accum := hdrhist.New(3)
+
 	for i := range l.Hists {
 		hist := l.Hists[i]
 		errs := l.Errs[i]
@@ -81,21 +87,35 @@ func main() {
 			continue
 		}
 
-		allVals := hist.AllVals()
-
 		fmt.Fprintf(w, "#start StepNum=%d NumSamples=%d UnixStart=%d,%d UnixEnd=%d,%d Errs=%d\n",
 			i, hist.TotalCount(), start.Unix(), start.Nanosecond(),
 			end.Unix(), end.Nanosecond(), errs)
 
-		for _, cur := range allVals {
-			if *merge {
-				if cur.Count > 0 {
-					fmt.Fprintf(w, "%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
-				}
-			} else {
-				for n := int64(0); n < cur.Count; n++ {
-					fmt.Fprintf(w, "%d,%f,%d\n", i, cur.Percentile, cur.Value/int64(time.Microsecond))
-				}
+		if !*mergeTS {
+			fprint(w, hist, *merge, i)
+		} else {
+			accum.Add(hist)
+		}
+	}
+
+	if *mergeTS {
+		fprint(w, accum, *merge, -1)
+	}
+}
+
+func fprint(w io.Writer, h *hdrhist.Hist, mergeVals bool, iter int) {
+	pre := strconv.Itoa(iter) + ","
+	if iter < 0 {
+		pre = ""
+	}
+	for _, cur := range h.AllVals() {
+		if mergeVals {
+			if cur.Count > 0 {
+				fmt.Fprintf(w, "%s%f,%d\n", pre, cur.Percentile, cur.Value/int64(time.Microsecond))
+			}
+		} else {
+			for n := int64(0); n < cur.Count; n++ {
+				fmt.Fprintf(w, "%s%f,%d\n", pre, cur.Percentile, cur.Value/int64(time.Microsecond))
 			}
 		}
 	}
