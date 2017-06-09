@@ -87,6 +87,7 @@ type smallRand struct {
 func (r *smallRand) get(src rand.Source) int {
 	if r.left <= 6 {
 		r.cur = src.Int63()
+		c.left = 61
 	}
 	sr := int(r.cur & ((1 << 6) - 1))
 	r.cur >>= 6
