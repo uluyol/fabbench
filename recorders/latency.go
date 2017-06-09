@@ -33,7 +33,7 @@ func (r *Latency) Reset() {
 
 func (r *Latency) Record(d time.Duration, err error) {
 	r.mu.Lock()
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 	if err != nil {
 		r.errs++
 		return

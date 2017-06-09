@@ -3,6 +3,8 @@ package readers
 import (
 	"bytes"
 	"errors"
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,7 +12,79 @@ import (
 	"github.com/uluyol/hdrhist"
 )
 
+var badRec = errors.New("bad request")
+
+func TestLatencyRecorderRecordsNRecords(t *testing.T) {
+	tests := []struct {
+		nrec    int
+		perr    float32
+		nworker int
+	}{
+		{1000, 0.3, 4},
+		{10000, 0.5, 2},
+		{1000, 1, 8},
+		{1000, 0, 17},
+	}
+
+	for i, test := range tests {
+		var wg sync.WaitGroup
+		wg.Add(test.nworker)
+		rec := recorders.NewLatency(hdrhist.Config{
+			LowestDiscernible: int64(time.Nanosecond),
+			HighestTrackable:  int64(time.Second),
+			SigFigs:           3,
+			AutoResize:        true,
+		})
+		for n := 0; n < test.nworker; n++ {
+			go func(n int) {
+				rng := rand.New(rand.NewSource(int64(n)))
+				for r := 0; r < test.nrec; r++ {
+					if rng.Float32() < test.perr {
+						rec.Record(0, badRec)
+					} else {
+						rec.Record(100, nil)
+					}
+				}
+				wg.Done()
+			}(n)
+		}
+		wg.Wait()
+		rd := readerOf(t, rec)
+
+		nreq := numReqs(rd)
+		wantreq := int64(test.nrec) * int64(test.nworker)
+		if nreq != wantreq {
+			t.Errorf("case %d: have recorded %d requests, want %d", i, nreq, wantreq)
+		}
+	}
+}
+
+func numReqs(rd *Latency) int64 {
+	var c int64
+	for _, h := range rd.Hists {
+		c += h.TotalCount()
+	}
+	for _, nerr := range rd.Errs {
+		c += int64(nerr)
+	}
+	return c
+}
+
+func readerOf(t *testing.T, rec *recorders.Latency) *Latency {
+	var buf bytes.Buffer
+	lw := hdrhist.NewLogWriter(&buf)
+	if err := rec.WriteTo(lw); err != nil {
+		t.Fatalf("unexpected error while writing recorder: %v", err)
+	}
+	rd, err := ReadLatency(&buf)
+	if err != nil {
+		t.Fatalf("unexpected error while populating reader: %v", err)
+	}
+	return rd
+}
+
 func TestLatencyRecorderReaderRoundTrip(t *testing.T) {
+	t.Parallel()
 	rec := recorders.NewLatency(hdrhist.Config{
 		LowestDiscernible: int64(time.Microsecond),
 		HighestTrackable:  int64(100 * time.Second),
@@ -51,6 +125,7 @@ func TestLatencyRecorderReaderRoundTrip(t *testing.T) {
 }
 
 func TestLatencyRecorderReaderMulti(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	rec := recorders.NewLatency(hdrhist.Config{
 		LowestDiscernible: int64(time.Microsecond),
