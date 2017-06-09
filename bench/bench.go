@@ -145,15 +145,15 @@ func (l *Loader) Run(ctx context.Context) error {
 	defer msgLogger.Close()
 
 	for i := 0; i < l.NumWorkers; i++ {
-		go func(rsrc rand.Source) {
+		go func(rng *rand.Rand) {
 			var retErr error
 			defer func() {
 				errs <- retErr
 			}()
 
 			for i := nops.getAndInc(); i < loadCount; i = nops.getAndInc() {
-				key := keyGen.Next(rsrc)
-				val := valGen.Next(rsrc)
+				key := keyGen.Next(rng)
+				val := valGen.Next(rng)
 				if err := l.DB.Put(newCtx, key, val); err != nil {
 					curFail := nfail.getAndInc()
 					if float64(curFail)/float64(loadCount) > l.AllowedFailFrac {
@@ -168,7 +168,7 @@ func (l *Loader) Run(ctx context.Context) error {
 				default: // don't wait
 				}
 			}
-		}(rand.NewSource(l.Rand.Int63()))
+		}(rand.New(rand.NewSource(l.Rand.Int63())))
 	}
 
 	var retErr error
@@ -357,7 +357,7 @@ type issueArgs struct {
 func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execDuration time.Duration) {
 	var wg sync.WaitGroup
 	start := time.Now()
-	shardedRand := syncrand.NewShardedSource(args.rand)
+	shardedRand := syncrand.NewSharded(args.rand)
 	reqi := 0
 	for time.Since(start) < execDuration {
 		reqi++
@@ -372,16 +372,16 @@ func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execD
 		reqStart := time.Now()
 		reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 		wg.Add(1)
-		go func(ctx context.Context, src rand.Source, reqStart time.Time, isRead bool) {
+		go func(ctx context.Context, rng *rand.Rand, reqStart time.Time, isRead bool) {
 			defer wg.Done()
 			if isRead {
-				key := args.readKeyGen.Next(src)
+				key := args.readKeyGen.Next(rng)
 				_, err := args.db.Get(reqCtx, key)
 				latency := time.Since(reqStart)
 				args.readC <- result{latency, err}
 			} else {
-				key := args.writeKeyGen.Next(src)
-				val := args.valGen.Next(src)
+				key := args.writeKeyGen.Next(rng)
+				val := args.valGen.Next(rng)
 				err := args.db.Put(reqCtx, key, val)
 				latency := time.Since(start)
 				args.writeC <- result{latency, err}

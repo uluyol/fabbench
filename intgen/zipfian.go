@@ -95,8 +95,8 @@ func zeta(n int64, theta float64) float64 {
 	return sum
 }
 
-func (g *Zipfian) Next(src rand.Source) int64 {
-	u := rand.New(src).Float64()
+func (g *Zipfian) Next(rng *rand.Rand) int64 {
+	u := rng.Float64()
 	uz := u * g.zetan
 
 	if uz < 1 {
@@ -126,10 +126,10 @@ func NewScrambledZipfian(min, max int64, theta, zetan float64) *ScrambledZipfian
 	}
 }
 
-func (g *ScrambledZipfian) Next(src rand.Source) int64 {
+func (g *ScrambledZipfian) Next(rng *rand.Rand) int64 {
 	v := g.max
 	for v >= g.max {
-		v = g.min + (fnv.Hash64(g.g.Next(src)) % g.itemCount)
+		v = g.min + (fnv.Hash64(g.g.Next(rng)) % g.itemCount)
 	}
 	return v
 }
@@ -148,8 +148,8 @@ func NewMapScrambledZipfian(nitems int64, theta float64) *MapScrambledZipfian {
 	}
 }
 
-func (g *MapScrambledZipfian) Next(src rand.Source) int64 {
-	i := g.g.Next(src)
+func (g *MapScrambledZipfian) Next(rng *rand.Rand) int64 {
+	i := g.g.Next(rng)
 	if i >= g.itemCount || i < 0 {
 		panic(fmt.Errorf("invalid index: %d", i))
 	}

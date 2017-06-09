@@ -20,8 +20,8 @@ type stringGen struct {
 	Len int
 }
 
-func (g stringGen) Next(src rand.Source) string {
-	return formatKeyName(g.G.Next(src), g.Len)
+func (g stringGen) Next(rng *rand.Rand) string {
+	return formatKeyName(g.G.Next(rng), g.Len)
 }
 
 var fmtBufPool = sync.Pool{
@@ -68,11 +68,11 @@ func newValueGen(size int) *valueGen {
 	}
 }
 
-func (g *valueGen) Next(src rand.Source) string {
+func (g *valueGen) Next(rng *rand.Rand) string {
 	buf := g.bufPool.Get().([]byte)
 	sr := smallRand{}
 	for i := range buf {
-		buf[i] = randStringVals[sr.get(src)]
+		buf[i] = randStringVals[sr.get(rng)]
 	}
 	s := string(buf)
 	g.bufPool.Put(buf)
@@ -87,7 +87,7 @@ type smallRand struct {
 func (r *smallRand) get(src rand.Source) int {
 	if r.left <= 6 {
 		r.cur = src.Int63()
-		c.left = 61
+		r.left = 61
 	}
 	sr := int(r.cur & ((1 << 6) - 1))
 	r.cur >>= 6

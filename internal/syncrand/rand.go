@@ -28,18 +28,20 @@ func (s *LockedSource) Int63() int64 {
 	return v
 }
 
-type ShardedSource struct {
-	shards []LockedSource
+type Sharded struct {
+	shards []*rand.Rand
 }
 
-func NewShardedSource(src rand.Source) ShardedSource {
-	shards := make([]LockedSource, runtime.NumCPU())
-	for i := 0; i < len(shards); i++ {
-		shards[i].s = rand.NewSource(src.Int63())
+func NewSharded(src rand.Source) Sharded {
+	srcShards := make([]LockedSource, runtime.NumCPU())
+	rngShards := make([]*rand.Rand, len(srcShards))
+	for i := 0; i < len(srcShards); i++ {
+		srcShards[i].s = rand.NewSource(src.Int63())
+		rngShards[i] = rand.New(&srcShards[i])
 	}
-	return ShardedSource{shards}
+	return Sharded{rngShards}
 }
 
-func (s ShardedSource) Get(i int) rand.Source {
-	return &s.shards[i%len(s.shards)]
+func (s Sharded) Get(i int) *rand.Rand {
+	return s.shards[i%len(s.shards)]
 }

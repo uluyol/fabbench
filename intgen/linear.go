@@ -52,7 +52,7 @@ func NewLinear(n int64) *Linear {
 	}
 }
 
-func (g *Linear) Next(src rand.Source) int64 {
+func (g *Linear) Next(rng *rand.Rand) int64 {
 	// TODO: Stop hacking around 0 spike.
 	//       To avoid the spike that we see at 0,
 	//       we are setting n to n+1,
@@ -62,7 +62,7 @@ func (g *Linear) Next(src rand.Source) int64 {
 	//       Fix this.
 	var f int64
 	for f == 0 {
-		cdf := rand.New(src).Float64()
+		cdf := rng.Float64()
 
 		toroot := g.s - g.d*cdf
 		tosub := int64(math.Sqrt(toroot))

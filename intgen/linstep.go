@@ -55,22 +55,17 @@ func NewLinearStep(n, k int64) LinearStep {
 	return g
 }
 
-func (g LinearStep) Next(src rand.Source) int64 {
+func (g LinearStep) Next(rng *rand.Rand) int64 {
 
 	// sum from 0 to K (inclusive both sides)
-	stop := src.Int63() % (g.k * (g.k + 1) / 2)
+	stop := rng.Int63n(g.k * (g.k + 1) / 2)
 
 	var cum int64
 	for i := int64(1); i <= g.k; i++ {
 		cum += i
 		if stop < cum {
-			return (i-1)*g.step + src.Int63()%g.step
+			return (i-1)*g.step + rng.Int63n(g.step)
 		}
 	}
 	panic(fmt.Errorf("unable to stop: stop %d cum %d", stop, cum))
-}
-
-func (g LinearStep) ProbOf(n int64) float64 {
-	stepno := (n * g.k) / g.n
-	return float64(stepno)*g.m + g.b
 }

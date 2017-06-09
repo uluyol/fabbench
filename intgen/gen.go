@@ -6,7 +6,7 @@ import (
 )
 
 type Gen interface {
-	Next(src rand.Source) int64
+	Next(rng *rand.Rand) int64
 }
 
 type Uniform struct {
@@ -17,18 +17,15 @@ func NewUniform(nitems int64) Uniform {
 	return Uniform{n: nitems}
 }
 
-func (g Uniform) Next(src rand.Source) int64 {
-	if g.n&(g.n-1) == 0 { // n is power of two, can mask
-		return src.Int63() & (g.n - 1)
-	}
-	return src.Int63() % g.n
+func (g Uniform) Next(rng *rand.Rand) int64 {
+	return rng.Int63n(g.n)
 }
 
 type Counter struct {
 	Count int64
 }
 
-func (g *Counter) Next(_ rand.Source) int64 {
+func (g *Counter) Next(_ *rand.Rand) int64 {
 	c := atomic.AddInt64(&g.Count, 1)
 	c--
 	return c

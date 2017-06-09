@@ -16,20 +16,20 @@ func newPoisson(lambda float64) poisson {
 	return poisson{math.Exp(-lambda)}
 }
 
-func (g poisson) Next(src rand.Source) int64 {
+func (g poisson) Next(rng *rand.Rand) int64 {
 	k := int64(0)
 	p := float64(1)
 
 	for p > g.l {
 		k++
-		p *= rand.New(src).Float64()
+		p *= rng.Float64()
 	}
 	return k - 1
 }
 
 type closed struct{}
 
-func (g closed) Next(_ rand.Source) int64 {
+func (g closed) Next(_ *rand.Rand) int64 {
 	panic("closed generator should never be called")
 }
 
@@ -45,7 +45,7 @@ func newUniform(mean, width float64) uniform {
 	return uniform{min: min, siz: siz}
 }
 
-func (g uniform) Next(src rand.Source) int64 {
-	t := src.Int63() % g.siz
+func (g uniform) Next(rng *rand.Rand) int64 {
+	t := rng.Int63n(g.siz)
 	return g.min + t
 }
