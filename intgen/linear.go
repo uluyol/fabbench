@@ -38,10 +38,9 @@ type Linear struct {
 	d float64 // precomputed 4N(N+1)
 	m float64 // precomputed -2 / [ N(N+1) ]
 	b float64 // precomputed 2 / (N+1)
-	r *rand.Rand
 }
 
-func NewLinear(s rand.Source, n int64) *Linear {
+func NewLinear(n int64) *Linear {
 	n++ // FIXME: hack to deal with spike at 0
 	return &Linear{
 		n: n,
@@ -50,11 +49,10 @@ func NewLinear(s rand.Source, n int64) *Linear {
 		d: float64(4 * n * (n + 1)),
 		m: -2 / float64(n*(n+1)),
 		b: 2 / float64(n+1),
-		r: rand.New(s),
 	}
 }
 
-func (g *Linear) Next() int64 {
+func (g *Linear) Next(src rand.Source) int64 {
 	// TODO: Stop hacking around 0 spike.
 	//       To avoid the spike that we see at 0,
 	//       we are setting n to n+1,
@@ -64,7 +62,7 @@ func (g *Linear) Next() int64 {
 	//       Fix this.
 	var f int64
 	for f == 0 {
-		cdf := g.r.Float64()
+		cdf := rand.New(src).Float64()
 
 		toroot := g.s - g.d*cdf
 		tosub := int64(math.Sqrt(toroot))
@@ -79,8 +77,4 @@ func (g *Linear) Next() int64 {
 		}
 	}
 	return f - 1
-}
-
-func (g *Linear) ProbOf(n int64) float64 {
-	return g.m*float64(n) + g.b
 }

@@ -29,7 +29,6 @@ P(x) = floor(Kx/N) * -2/(KN+N) + 2K/(KN+N)
 // with linearly decreasing probabilities in K steps.
 // The probability of drawing ≥ N is 0.
 type LinearStep struct {
-	r *rand.Rand
 	n int64
 	k int64
 
@@ -40,9 +39,8 @@ type LinearStep struct {
 	b float64 // 2K / (KN+N)
 }
 
-func NewLinearStep(s rand.Source, n, k int64) LinearStep {
+func NewLinearStep(n, k int64) LinearStep {
 	g := LinearStep{
-		r:    rand.New(s),
 		n:    n,
 		k:    k,
 		step: n / k,
@@ -57,16 +55,16 @@ func NewLinearStep(s rand.Source, n, k int64) LinearStep {
 	return g
 }
 
-func (g LinearStep) Next() int64 {
+func (g LinearStep) Next(src rand.Source) int64 {
 
 	// sum from 0 to K (inclusive both sides)
-	stop := g.r.Int63n(g.k * (g.k + 1) / 2)
+	stop := src.Int63() % (g.k * (g.k + 1) / 2)
 
 	var cum int64
 	for i := int64(1); i <= g.k; i++ {
 		cum += i
 		if stop < cum {
-			return (i-1)*g.step + g.r.Int63n(g.step)
+			return (i-1)*g.step + src.Int63()%g.step
 		}
 	}
 	panic(fmt.Errorf("unable to stop: stop %d cum %d", stop, cum))

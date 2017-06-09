@@ -9,7 +9,7 @@ import (
 	"github.com/uluyol/fabbench/intgen"
 )
 
-// valueGen generates values and is safe for concurrent use
+// stringGen generates strings and is safe for concurrent use
 // so long as G is also safe for concurrent use
 type stringGen struct {
 	G intgen.Gen
@@ -20,8 +20,8 @@ type stringGen struct {
 	Len int
 }
 
-func (g stringGen) Next() string {
-	return formatKeyName(g.G.Next(), g.Len)
+func (g stringGen) Next(src rand.Source) string {
+	return formatKeyName(g.G.Next(src), g.Len)
 }
 
 var fmtBufPool = sync.Pool{
@@ -57,25 +57,48 @@ func formatKeyName(v int64, keySize int) string {
 
 // valueGen generates values and is safe for concurrent use
 type valueGen struct {
-	mu   sync.Mutex
-	buf  []byte
-	rand *rand.Rand
+	bufPool sync.Pool
 }
 
-func newValueGen(src rand.Source, size int) *valueGen {
+func newValueGen(size int) *valueGen {
 	return &valueGen{
-		buf:  make([]byte, size),
-		rand: rand.New(src),
+		bufPool: sync.Pool{
+			New: func() interface{} { return make([]byte, size) },
+		},
 	}
 }
 
-func (g *valueGen) Next() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	for i := range g.buf {
-		g.buf[i] = randStringVals[g.rand.Intn(len(randStringVals))]
+func (g *valueGen) Next(src rand.Source) string {
+	buf := g.bufPool.Get().([]byte)
+	sr := smallRand{}
+	for i := range buf {
+		buf[i] = randStringVals[sr.get(src)]
 	}
-	return string(g.buf)
+	s := string(buf)
+	g.bufPool.Put(buf)
+	return s
 }
 
-var randStringVals = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+type smallRand struct {
+	cur  int64
+	left int
+}
+
+func (r *smallRand) get(src rand.Source) int {
+	if r.left <= 6 {
+		r.cur = src.Int63()
+	}
+	sr := int(r.cur & ((1 << 6) - 1))
+	r.cur >>= 6
+	r.left -= 6
+	return sr
+}
+
+// if this is updated, need to update smallRand as well
+var randStringVals = []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-#")
+
+func init() {
+	if len(randStringVals) != 64 {
+		panic("need to fix randStringVals: incorrect length")
+	}
+}

@@ -34,11 +34,9 @@ type Zipfian struct {
 	eta        float64
 	theta      float64
 	zeta2theta float64
-
-	rand *rand.Rand
 }
 
-func NewZipfian(randSrc rand.Source, min, max int64, theta, zetan float64) *Zipfian {
+func NewZipfian(min, max int64, theta, zetan float64) *Zipfian {
 	items := max - min + 1
 	return &Zipfian{
 		items:        items,
@@ -49,16 +47,15 @@ func NewZipfian(randSrc rand.Source, min, max int64, theta, zetan float64) *Zipf
 		alpha:        1 / (1 - theta),
 		zetan:        zetan,
 		eta:          (1 - math.Pow(2/float64(items), 1-theta)) / (1 - zeta(2, theta)/zetan),
-		rand:         rand.New(randSrc),
 	}
 }
 
-func NewZipfianN(randSrc rand.Source, nitems int64, theta float64) *Zipfian {
-	return NewZipfian(randSrc, 0, nitems-1, theta, zetastatic(nitems, theta))
+func NewZipfianN(nitems int64, theta float64) *Zipfian {
+	return NewZipfian(0, nitems-1, theta, zetastatic(nitems, theta))
 }
 
-func NewSimpleZipfian(randSrc rand.Source, nitems int64, theta float64) *Zipfian {
-	return NewZipfian(randSrc, 0, nitems-1, theta, zetastatic(nitems, theta))
+func NewSimpleZipfian(nitems int64, theta float64) *Zipfian {
+	return NewZipfian(0, nitems-1, theta, zetastatic(nitems, theta))
 }
 
 func zetastatic(n int64, theta float64) float64 {
@@ -98,8 +95,8 @@ func zeta(n int64, theta float64) float64 {
 	return sum
 }
 
-func (g *Zipfian) Next() int64 {
-	u := g.rand.Float64()
+func (g *Zipfian) Next(src rand.Source) int64 {
+	u := rand.New(src).Float64()
 	uz := u * g.zetan
 
 	if uz < 1 {
@@ -118,21 +115,21 @@ type ScrambledZipfian struct {
 	itemCount int64
 }
 
-func NewScrambledZipfian(randSrc rand.Source, min, max int64, theta, zetan float64) *ScrambledZipfian {
+func NewScrambledZipfian(min, max int64, theta, zetan float64) *ScrambledZipfian {
 	const internalZGItemCount = 10000000000
 
 	return &ScrambledZipfian{
-		g:         NewZipfian(randSrc, 0, internalZGItemCount, theta, zetan),
+		g:         NewZipfian(0, internalZGItemCount, theta, zetan),
 		min:       min,
 		max:       max,
 		itemCount: max - min + 1,
 	}
 }
 
-func (g *ScrambledZipfian) Next() int64 {
+func (g *ScrambledZipfian) Next(src rand.Source) int64 {
 	v := g.max
 	for v >= g.max {
-		v = g.min + (fnv.Hash64(g.g.Next()) % g.itemCount)
+		v = g.min + (fnv.Hash64(g.g.Next(src)) % g.itemCount)
 	}
 	return v
 }
@@ -143,16 +140,16 @@ type MapScrambledZipfian struct {
 	itemCount int64
 }
 
-func NewMapScrambledZipfian(randSrc rand.Source, nitems int64, theta float64) *MapScrambledZipfian {
+func NewMapScrambledZipfian(nitems int64, theta float64) *MapScrambledZipfian {
 	return &MapScrambledZipfian{
-		g:         NewZipfian(randSrc, 0, nitems-1, theta, zetastatic(nitems, theta)),
-		perm:      perm.NewInt64(rand.New(randSrc), nitems),
+		g:         NewZipfian(0, nitems-1, theta, zetastatic(nitems, theta)),
+		perm:      perm.NewInt64(rand.New(rand.NewSource(0)), nitems),
 		itemCount: nitems,
 	}
 }
 
-func (g *MapScrambledZipfian) Next() int64 {
-	i := g.g.Next()
+func (g *MapScrambledZipfian) Next(src rand.Source) int64 {
+	i := g.g.Next(src)
 	if i >= g.itemCount || i < 0 {
 		panic(fmt.Errorf("invalid index: %d", i))
 	}

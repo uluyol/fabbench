@@ -17,13 +17,14 @@ func TestUniformArrivalDist(t *testing.T) {
 		{123, 1},
 	}
 
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, test := range tests {
-		g := newUniform(rand.NewSource(time.Now().UnixNano()), test.mean, test.width)
-		mean := float64(g.Next())
+		g := newUniform(test.mean, test.width)
+		mean := float64(g.Next(rng))
 		count := float64(1)
 
 		for i := 0; i < 100000; i++ {
-			mean = mean*count/(count+1) + float64(g.Next())/(count+1)
+			mean = mean*count/(count+1) + float64(g.Next(rng))/(count+1)
 			count++
 		}
 

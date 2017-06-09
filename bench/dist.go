@@ -7,46 +7,45 @@ import (
 
 type poisson struct {
 	l float64
-	r *rand.Rand
 }
 
-func newPoisson(rsrc rand.Source, lambda float64) poisson {
+func newPoisson(lambda float64) poisson {
 	if lambda <= 0 {
 		panic("lambda must be positive")
 	}
-	return poisson{math.Exp(-lambda), rand.New(rsrc)}
+	return poisson{math.Exp(-lambda)}
 }
 
-func (g poisson) Next() int64 {
+func (g poisson) Next(src rand.Source) int64 {
 	k := int64(0)
 	p := float64(1)
 
 	for p > g.l {
 		k++
-		p *= g.r.Float64()
+		p *= rand.New(src).Float64()
 	}
 	return k - 1
 }
 
 type closed struct{}
 
-func (g closed) Next() int64 {
+func (g closed) Next(_ rand.Source) int64 {
 	panic("closed generator should never be called")
 }
 
 type uniform struct {
 	min int64
 	siz int64
-	r   *rand.Rand
 }
 
-func newUniform(rsrc rand.Source, mean, width float64) uniform {
+func newUniform(mean, width float64) uniform {
 	min := int64(mean - mean*width)
 	max := int64(math.Ceil(mean + mean*width))
 	siz := max - min + 1 // since we draw rand numbers below siz
-	return uniform{min: min, siz: siz, r: rand.New(rsrc)}
+	return uniform{min: min, siz: siz}
 }
 
-func (g uniform) Next() int64 {
-	return g.min + g.r.Int63n(g.siz)
+func (g uniform) Next(src rand.Source) int64 {
+	t := src.Int63() % g.siz
+	return g.min + t
 }

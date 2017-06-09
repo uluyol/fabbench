@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/uluyol/fabbench/db"
+	"github.com/uluyol/fabbench/internal/syncrand"
 	"github.com/uluyol/fabbench/intgen"
 	"github.com/uluyol/fabbench/recorders"
 	"github.com/uluyol/hdrhist"
@@ -116,10 +117,10 @@ func (l *periodicLogger) Close() {
 
 func (l *Loader) Run(ctx context.Context) error {
 	keyGen := stringGen{
-		G:   intgen.NewSync(&intgen.Counter{Count: l.LoadStart}),
+		G:   &intgen.Counter{Count: l.LoadStart},
 		Len: l.Config.KeySize,
 	}
-	valGen := newValueGen(rand.NewSource(l.Rand.Int63()), l.Config.ValSize)
+	valGen := newValueGen(l.Config.ValSize)
 
 	newCtx, cancel := context.WithCancel(ctx)
 
@@ -144,15 +145,15 @@ func (l *Loader) Run(ctx context.Context) error {
 	defer msgLogger.Close()
 
 	for i := 0; i < l.NumWorkers; i++ {
-		go func() {
+		go func(rsrc rand.Source) {
 			var retErr error
 			defer func() {
 				errs <- retErr
 			}()
 
 			for i := nops.getAndInc(); i < loadCount; i = nops.getAndInc() {
-				key := keyGen.Next()
-				val := valGen.Next()
+				key := keyGen.Next(rsrc)
+				val := valGen.Next(rsrc)
 				if err := l.DB.Put(newCtx, key, val); err != nil {
 					curFail := nfail.getAndInc()
 					if float64(curFail)/float64(loadCount) > l.AllowedFailFrac {
@@ -167,7 +168,7 @@ func (l *Loader) Run(ctx context.Context) error {
 				default: // don't wait
 				}
 			}
-		}()
+		}(rand.NewSource(l.Rand.Int63()))
 	}
 
 	var retErr error
@@ -182,32 +183,32 @@ func (l *Loader) Run(ctx context.Context) error {
 	return retErr
 }
 
-func makeSyncGen(d keyDist, rsrc rand.Source, nitems int64) intgen.Gen {
+func makeReqGen(d keyDist, nitems int64) intgen.Gen {
 	var g intgen.Gen
 	switch d.Kind {
 	case kdUniform:
-		g = intgen.NewUniform(rsrc, nitems)
+		g = intgen.NewUniform(nitems)
 	case kdZipfian:
-		g = intgen.NewZipfianN(rsrc, nitems, d.zfTheta())
+		g = intgen.NewZipfianN(nitems, d.zfTheta())
 	case kdLinear:
-		g = intgen.NewLinear(rsrc, nitems)
+		g = intgen.NewLinear(nitems)
 	case kdLinStep:
-		g = intgen.NewLinearStep(rsrc, nitems, d.lsSteps())
+		g = intgen.NewLinearStep(nitems, d.lsSteps())
 	default:
 		panic(fmt.Errorf("invalid key dist %v", d))
 	}
-	return intgen.NewSync(g)
+	return g
 }
 
-func makeArrivalDist(d arrivalDist, rsrc rand.Source, meanPeriod float64) intgen.Gen {
+func makeArrivalDist(d arrivalDist, meanPeriod float64) intgen.Gen {
 	var g intgen.Gen
 	switch d.Kind {
 	case adClosed:
 		g = closed{}
 	case adUniform:
-		g = newUniform(rsrc, meanPeriod, d.uniWidth())
+		g = newUniform(meanPeriod, d.uniWidth())
 	case adPoisson:
-		g = newPoisson(rsrc, meanPeriod)
+		g = newPoisson(meanPeriod)
 	default:
 		panic(fmt.Errorf("invalid arrival dist %v", d))
 	}
@@ -270,7 +271,7 @@ func (c *resultCounter) getAndReset() (succ int32, fail int32) {
 }
 
 func (r *Runner) Run(ctx context.Context) error {
-	valGen := newValueGen(rand.NewSource(r.Rand.Int63()), r.Config.ValSize)
+	valGen := newValueGen(r.Config.ValSize)
 
 	for tsIndex, ts := range r.Trace {
 		if r.Log != nil {
@@ -281,8 +282,8 @@ func (r *Runner) Run(ctx context.Context) error {
 			return ctx.Err()
 		default: // don't wait
 		}
-		rig := makeSyncGen(ts.ReadKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
-		wig := makeSyncGen(ts.WriteKeyDist, rand.NewSource(r.Rand.Int63()), r.Config.RecordCount)
+		rig := makeReqGen(ts.ReadKeyDist, r.Config.RecordCount)
+		wig := makeReqGen(ts.WriteKeyDist, r.Config.RecordCount)
 		readKeyGen := stringGen{G: rig, Len: r.Config.KeySize}
 		writeKeyGen := stringGen{G: wig, Len: r.Config.KeySize}
 
@@ -328,7 +329,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			meanPeriod := float64(time.Second) / float64(ts.AvgQPS)
 			// shrink period so that dist calculation doesn't take too long
 			meanPeriod /= 10 * float64(time.Microsecond)
-			arrivalGen := makeArrivalDist(ts.ArrivalDist, rand.NewSource(r.Rand.Int63()), float64(meanPeriod))
+			arrivalGen := makeArrivalDist(ts.ArrivalDist, float64(meanPeriod))
 
 			issueOpen(ctx, args, arrivalGen, ts.Duration)
 		}
@@ -356,33 +357,36 @@ type issueArgs struct {
 func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execDuration time.Duration) {
 	var wg sync.WaitGroup
 	start := time.Now()
+	shardedRand := syncrand.NewShardedSource(args.rand)
+	reqi := 0
 	for time.Since(start) < execDuration {
+		reqi++
 		select {
 		case <-ctx.Done():
 			break
 		default: // don't wait
 		}
 		nextIsRead := args.rand.Float32() < args.rwRatio
-		wait := time.Duration(arrivalGen.Next()) * 10 * time.Microsecond
+		wait := time.Duration(arrivalGen.Next(args.rand)) * 10 * time.Microsecond
 		time.Sleep(wait)
 		reqStart := time.Now()
 		reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 		wg.Add(1)
-		go func(ctx context.Context, reqStart time.Time, isRead bool) {
+		go func(ctx context.Context, src rand.Source, reqStart time.Time, isRead bool) {
 			defer wg.Done()
 			if isRead {
-				key := args.readKeyGen.Next()
+				key := args.readKeyGen.Next(src)
 				_, err := args.db.Get(reqCtx, key)
 				latency := time.Since(reqStart)
 				args.readC <- result{latency, err}
 			} else {
-				key := args.writeKeyGen.Next()
-				val := args.valGen.Next()
+				key := args.writeKeyGen.Next(src)
+				val := args.valGen.Next(src)
 				err := args.db.Put(reqCtx, key, val)
 				latency := time.Since(start)
 				args.writeC <- result{latency, err}
 			}
-		}(reqCtx, reqStart, nextIsRead)
+		}(reqCtx, shardedRand.Get(reqi), reqStart, nextIsRead)
 	}
 	wg.Wait()
 }
@@ -404,13 +408,13 @@ func issueClosed(ctx context.Context, args issueArgs, workers int, totalOps int6
 				reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 				start := time.Now()
 				if rng.Float32() < args.rwRatio {
-					key := args.readKeyGen.Next()
+					key := args.readKeyGen.Next(rng)
 					_, err := args.db.Get(reqCtx, key)
 					latency := time.Since(start)
 					args.readC <- result{latency, err}
 				} else {
-					key := args.writeKeyGen.Next()
-					val := args.valGen.Next()
+					key := args.writeKeyGen.Next(rng)
+					val := args.valGen.Next(rng)
 					err := args.db.Put(reqCtx, key, val)
 					latency := time.Since(start)
 					args.writeC <- result{latency, err}
