@@ -14,7 +14,8 @@ import (
 
 func TestLoadRun(t *testing.T) {
 	t.Parallel()
-	conn, _ := db.Dial("dummy", nil, nil)
+	conn, err := db.Dial("dummy", nil, []byte{})
+	t.Log(conn, err)
 	defer conn.Close()
 	cfg := Config{
 		RecordCount: 1e3,

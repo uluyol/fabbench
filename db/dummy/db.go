@@ -50,6 +50,9 @@ func init() {
 		type conf struct {
 			MaxQPS *int `json:"maxQPS",omitempty`
 		}
+		if len(data) == 0 {
+			data = []byte("{}")
+		}
 		var cfg conf
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("invalid dummy config: %v", err)
