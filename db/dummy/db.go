@@ -2,8 +2,11 @@ package dummy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/uluyol/fabbench/db"
 )
@@ -43,5 +46,21 @@ func (c *client) Put(_ context.Context, key, val string) error {
 }
 
 func init() {
-	db.Register("dummy", func(_ []string, _ []byte) (db.DB, error) { return &client{}, nil })
+	db.Register("dummy", func(_ []string, data []byte) (db.DB, error) {
+		type conf struct {
+			MaxQPS *int `json:"maxQPS",omitempty`
+		}
+		var cfg conf
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("invalid dummy config: %v", err)
+		}
+		if cfg.MaxQPS == nil {
+			return &client{}, nil
+		} else {
+			c := &rtClient{
+				Latency: time.Second / time.Duration(*cfg.MaxQPS),
+			}
+			return c, nil
+		}
+	})
 }

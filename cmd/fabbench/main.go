@@ -41,6 +41,11 @@ CONFIG FORMAT
 		dummy:     A dummy database useful for testing
 		cassandra: Apache Cassandra via gocql
 
+	For dummy, the schema for db.options is
+		{
+			"maxQPS": INT // optional
+		}
+
 	For cassandra, the schema for db.options is
 		{
 			"clientRetries":        INT,    // optional
