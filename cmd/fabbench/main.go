@@ -244,11 +244,12 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 }
 
 type runCmd struct {
-	configPath string
-	tracePath  string
-	outPre     string
-	hostsCSV   string
-	timeout    time.Duration
+	configPath   string
+	tracePath    string
+	outPre       string
+	hostsCSV     string
+	timeout      time.Duration
+	maxWorkerQPS int
 	baseFlags
 }
 
@@ -262,6 +263,7 @@ func (c *runCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.outPre, "out", "", "output path prefix (will add -ro.gz and -wo.gz)")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
 	fs.DurationVar(&c.timeout, "timeout", 10*time.Second, "timeout for server requests")
+	fs.IntVar(&c.maxWorkerQPS, "maxworkerqps", 1e3, "max QPS/worker, will create workers as needed")
 	c.baseFlags.SetFlags(fs)
 }
 
@@ -327,6 +329,7 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		WriteRecorder: writeRec,
 		WriteWriter:   writeLW,
 		ReqTimeout:    c.timeout,
+		MaxWorkerQPS:  c.maxWorkerQPS,
 	}
 
 	if err := r.Run(ctx); err != nil {

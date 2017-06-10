@@ -6,6 +6,7 @@ import (
 )
 
 func TestSplitDuration(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		v    time.Duration
 		size time.Duration
@@ -43,6 +44,7 @@ func TestSplitDuration(t *testing.T) {
 }
 
 func TestSplitRecords(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		numRec     int64
 		numWorkers int64

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/uluyol/fabbench/db"
+	"github.com/uluyol/fabbench/internal/ranges"
 	"github.com/uluyol/fabbench/internal/syncrand"
 	"github.com/uluyol/fabbench/intgen"
 	"github.com/uluyol/fabbench/recorders"
@@ -216,13 +217,14 @@ func makeArrivalDist(d arrivalDist, meanPeriod float64) intgen.Gen {
 }
 
 type Runner struct {
-	_          struct{}
-	Log        Logger
-	DB         db.DB
-	Config     Config
-	Rand       *rand.Rand
-	Trace      []TraceStep
-	ReqTimeout time.Duration
+	_            struct{}
+	Log          Logger
+	DB           db.DB
+	Config       Config
+	Rand         *rand.Rand
+	Trace        []TraceStep
+	ReqTimeout   time.Duration
+	MaxWorkerQPS int
 
 	ReadRecorder  *recorders.Latency
 	ReadWriter    *hdrhist.LogWriter
@@ -326,12 +328,21 @@ func (r *Runner) Run(ctx context.Context) error {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
 			issueClosed(ctx, args, ts.ArrivalDist.clWorkers(), nops)
 		} else {
-			meanPeriod := float64(time.Second) / float64(ts.AvgQPS)
-			// shrink period so that dist calculation doesn't take too long
-			meanPeriod /= 10 * float64(time.Microsecond)
-			arrivalGen := makeArrivalDist(ts.ArrivalDist, float64(meanPeriod))
-
-			issueOpen(ctx, args, arrivalGen, ts.Duration)
+			shards := ranges.Chunks(int64(ts.AvgQPS), int64(r.MaxWorkerQPS))
+			var wg sync.WaitGroup
+			wg.Add(len(shards))
+			for w := range shards {
+				meanPeriod := float64(time.Second) / float64(shards[w])
+				// shrink period so that dist calculation doesn't take too long
+				meanPeriod /= 10 * float64(time.Microsecond)
+				arrivalGen := makeArrivalDist(ts.ArrivalDist, float64(meanPeriod))
+				args.rand = rand.New(rand.NewSource(r.Rand.Int63()))
+				go func(wargs issueArgs, wag intgen.Gen) {
+					issueOpen(ctx, wargs, wag, ts.Duration)
+					wg.Done()
+				}(args, arrivalGen)
+			}
+			wg.Wait()
 		}
 
 		close(readC)

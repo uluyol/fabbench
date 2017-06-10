@@ -24,6 +24,9 @@ func NewLatency(cfg hdrhist.Config) *Latency {
 }
 
 func (r *Latency) Reset() {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -32,6 +35,9 @@ func (r *Latency) Reset() {
 }
 
 func (r *Latency) Record(d time.Duration, err error) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err != nil {
@@ -43,6 +49,9 @@ func (r *Latency) Record(d time.Duration, err error) {
 }
 
 func (r *Latency) WriteTo(w *hdrhist.LogWriter) error {
+	if r == nil {
+		return nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

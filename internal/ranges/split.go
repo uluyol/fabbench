@@ -33,3 +33,15 @@ func SplitRecords(n int64, numWorkers int64) []WorkShard {
 	chunks[len(chunks)-1] = WorkShard{Start: cum, Count: n - cum}
 	return chunks
 }
+
+func Chunks(n int64, chunkSize int64) []int64 {
+	chunks := make([]int64, 0, 1+n/chunkSize)
+	for ; n >= 0; n -= chunkSize {
+		t := n
+		if t > chunkSize {
+			t = chunkSize
+		}
+		chunks = append(chunks, t)
+	}
+	return chunks
+}
