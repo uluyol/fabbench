@@ -30,7 +30,7 @@ type conf struct {
 	Timeout              string `json:"timeout"`
 
 	TraceData *string `json:"traceData",omitempty`
-	TraceRate *int32  `json:"traceRate",omitempty`
+	TraceRate *uint32 `json:"traceRate",omitempty`
 }
 
 func newInt(v int) *int { return &v }
@@ -105,7 +105,7 @@ type client struct {
 	getQPool sync.Pool
 	putQPool sync.Pool
 
-	opCount int32
+	opCount uint32
 }
 
 func (c *client) getSession() (*gocql.Session, error) {
@@ -128,7 +128,7 @@ func (c *client) traceQuery(q *gocql.Query, read bool) *gocql.Query {
 		if !read {
 			tracer = c.wtracer
 		}
-		if atomic.AddInt32(&c.opCount, 1)%*c.conf.TraceRate == 0 {
+		if atomic.AddUint32(&c.opCount, 1)%*c.conf.TraceRate == 0 {
 			return q.Trace(tracer)
 		}
 	}
@@ -268,15 +268,26 @@ func (c *client) Init(ctx context.Context) error {
 	return nil
 }
 
-func exponentialRetry(maxTries int, f func() error) error {
+func exponentialRetry(ctx context.Context, maxTries int, f func() error) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	err := f()
 	if err == nil {
 		return nil
 	}
 	sleep := 5 * time.Millisecond
+	t := time.NewTimer(sleep)
+	defer t.Stop()
 	maxSleep := time.Second
 	for retry := 0; retry < maxTries; retry++ {
-		time.Sleep(sleep)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+		}
 		err = f()
 		if err == nil {
 			return nil
@@ -285,6 +296,7 @@ func exponentialRetry(maxTries int, f func() error) error {
 		if sleep > maxSleep {
 			sleep = maxSleep
 		}
+		t.Reset(sleep)
 	}
 	return err
 }
@@ -296,7 +308,7 @@ func (c *client) Get(ctx context.Context, key string) (string, error) {
 	}
 	q := c.getQuery(s)
 	var v string
-	err = exponentialRetry(*c.conf.ClientRetries, func() error {
+	err = exponentialRetry(ctx, *c.conf.ClientRetries, func() error {
 		return c.traceQuery(q.Bind(key).WithContext(ctx), true).Scan(&v)
 	})
 	c.cacheGetQuery(q)
@@ -309,7 +321,7 @@ func (c *client) Put(ctx context.Context, key, val string) error {
 		return fmt.Errorf("unable to connect to db: %v", err)
 	}
 	q := c.putQuery(s)
-	err = exponentialRetry(*c.conf.ClientRetries, func() error {
+	err = exponentialRetry(ctx, *c.conf.ClientRetries, func() error {
 		return c.traceQuery(q.Bind(key, val).WithContext(ctx), false).Exec()
 	})
 	c.cachePutQuery(q)

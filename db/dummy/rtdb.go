@@ -41,11 +41,16 @@ func (c *rtClient) doReq(ctx context.Context) error {
 		}()
 	})
 	select {
-	case c.reqs <- struct{}{}:
-		<-c.resps
-		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case c.reqs <- struct{}{}:
+		<-c.resps
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
 	}
 }
 
