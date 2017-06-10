@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -73,29 +74,30 @@ type periodicLogger struct {
 	period time.Duration
 	out    func(l Logger)
 	done   chan struct{}
-	wg     sync.WaitGroup
+	prDone <-chan struct{}
 }
 
 func openPeriodicLogger(log Logger, period time.Duration, out func(l Logger)) *periodicLogger {
 	if log == nil {
 		return nil
 	}
+	pdone := make(chan struct{})
 	l := &periodicLogger{
 		log:    log,
 		period: period,
 		out:    out,
 		done:   make(chan struct{}),
+		prDone: pdone,
 	}
-	l.goPrinter()
+	l.goPrinter(pdone)
 	return l
 }
 
-func (l *periodicLogger) goPrinter() {
-	l.wg.Add(1)
+func (l *periodicLogger) goPrinter(pdone chan<- struct{}) {
 	go func() {
 		t := time.NewTicker(l.period)
 		defer t.Stop()
-		defer l.wg.Done()
+		defer close(pdone)
 		for {
 			select {
 			case <-t.C:
@@ -113,7 +115,7 @@ func (l *periodicLogger) Close() {
 		return
 	}
 	close(l.done)
-	l.wg.Wait()
+	<-l.prDone
 }
 
 func (l *Loader) Run(ctx context.Context) error {
@@ -184,13 +186,31 @@ func (l *Loader) Run(ctx context.Context) error {
 	return retErr
 }
 
+type zfArgs struct {
+	nitems  int64
+	zfTheta float64
+}
+
+var zfGenCache = struct {
+	mu    sync.Mutex
+	items map[zfArgs]intgen.Gen
+}{
+	items: make(map[zfArgs]intgen.Gen),
+}
+
 func makeReqGen(d keyDist, nitems int64) intgen.Gen {
 	var g intgen.Gen
 	switch d.Kind {
 	case kdUniform:
 		g = intgen.NewUniform(nitems)
 	case kdZipfian:
-		g = intgen.NewZipfianN(nitems, d.zfTheta())
+		zfGenCache.mu.Lock()
+		defer zfGenCache.mu.Unlock()
+		g = zfGenCache.items[zfArgs{nitems, d.zfTheta()}]
+		if g == nil {
+			g = intgen.NewZipfianN(nitems, d.zfTheta())
+			zfGenCache.items[zfArgs{nitems, d.zfTheta()}] = g
+		}
 	case kdLinear:
 		g = intgen.NewLinear(nitems)
 	case kdLinStep:
@@ -233,13 +253,20 @@ type Runner struct {
 }
 
 type result struct {
+	_    struct{}
+	step int
+
+	// optional, ignores latency, err if present
+	timeBeg *time.Time
+	timeEnd *time.Time
+
 	latency time.Duration
 	err     error
 }
 
 func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w *hdrhist.LogWriter) {
 	for res := range c {
-		rec.Record(res.latency, res.err)
+		rec.Record(res.step, res.latency, res.err)
 	}
 	rec.WriteTo(w)
 	wg.Done()
@@ -251,7 +278,7 @@ type resultCounter struct {
 }
 
 func (c *resultCounter) countAndFwdTo(fwdC chan<- result) chan<- result {
-	ch := make(chan result)
+	ch := make(chan result, cap(fwdC))
 	go func() {
 		for r := range ch {
 			if r.err != nil {
@@ -275,6 +302,29 @@ func (c *resultCounter) getAndReset() (succ int32, fail int32) {
 func (r *Runner) Run(ctx context.Context) error {
 	valGen := newValueGen(r.Config.ValSize)
 
+	var runWG sync.WaitGroup
+
+	readRecordC := make(chan result, 2*runtime.NumCPU())
+	writeRecordC := make(chan result, 2*runtime.NumCPU())
+
+	runWG.Add(1)
+	go recordAndWrite(readRecordC, &runWG, r.ReadRecorder, r.ReadWriter)
+	runWG.Add(1)
+	go recordAndWrite(writeRecordC, &runWG, r.WriteRecorder, r.WriteWriter)
+
+	var readCounter, writeCounter resultCounter
+
+	readC := readCounter.countAndFwdTo(readRecordC)
+	writeC := writeCounter.countAndFwdTo(writeRecordC)
+
+	msgLogger := openPeriodicLogger(r.Log, 10*time.Second, func(l Logger) {
+		rs, rf := readCounter.getAndReset()
+		ws, wf := writeCounter.getAndReset()
+		l.Printf("since last mesg: %d good, %d errored reads; %d good, %d errored writes", rs, rf, ws, wf)
+	})
+
+	var reqWG sync.WaitGroup
+
 	for tsIndex, ts := range r.Trace {
 		if r.Log != nil {
 			r.Log.Printf("starting trace step %d: %s", tsIndex, &ts)
@@ -289,29 +339,6 @@ func (r *Runner) Run(ctx context.Context) error {
 		readKeyGen := stringGen{G: rig, Len: r.Config.KeySize}
 		writeKeyGen := stringGen{G: wig, Len: r.Config.KeySize}
 
-		readRecordC := make(chan result)
-		writeRecordC := make(chan result)
-
-		r.ReadRecorder.Reset()
-		r.WriteRecorder.Reset()
-
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go recordAndWrite(readRecordC, &wg, r.ReadRecorder, r.ReadWriter)
-		wg.Add(1)
-		go recordAndWrite(writeRecordC, &wg, r.WriteRecorder, r.WriteWriter)
-
-		var readCounter, writeCounter resultCounter
-
-		readC := readCounter.countAndFwdTo(readRecordC)
-		writeC := writeCounter.countAndFwdTo(writeRecordC)
-
-		msgLogger := openPeriodicLogger(r.Log, 10*time.Second, func(l Logger) {
-			rs, rf := readCounter.getAndReset()
-			ws, wf := writeCounter.getAndReset()
-			l.Printf("since last mesg: %d good, %d errored reads; %d good, %d errored writes", rs, rf, ws, wf)
-		})
-
 		args := issueArgs{
 			db:          r.DB,
 			readKeyGen:  readKeyGen,
@@ -322,11 +349,15 @@ func (r *Runner) Run(ctx context.Context) error {
 			readC:       readC,
 			writeC:      writeC,
 			reqTimeout:  r.ReqTimeout,
+			tsStep:      tsIndex,
 		}
 
+		start := time.Now()
+		readC <- result{step: tsIndex, timeBeg: &start}
+		writeC <- result{step: tsIndex, timeBeg: &start}
 		if ts.ArrivalDist.Kind == adClosed {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
-			issueClosed(ctx, args, ts.ArrivalDist.clWorkers(), nops)
+			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
 		} else {
 			shards := ranges.Chunks(int64(ts.AvgQPS), int64(r.MaxWorkerQPS))
 			var wg sync.WaitGroup
@@ -338,18 +369,24 @@ func (r *Runner) Run(ctx context.Context) error {
 				arrivalGen := makeArrivalDist(ts.ArrivalDist, float64(meanPeriod))
 				args.rand = rand.New(rand.NewSource(r.Rand.Int63()))
 				go func(wargs issueArgs, wag intgen.Gen) {
-					issueOpen(ctx, wargs, wag, ts.Duration)
+					issueOpen(ctx, wargs, &reqWG, wag, ts.Duration)
 					wg.Done()
 				}(args, arrivalGen)
 			}
 			wg.Wait()
 		}
-
-		close(readC)
-		close(writeC)
-		wg.Wait()
-		msgLogger.Close()
+		end := time.Now()
+		readC <- result{step: tsIndex, timeEnd: &end}
+		writeC <- result{step: tsIndex, timeEnd: &end}
 	}
+
+	reqWG.Wait()
+
+	close(readC)
+	close(writeC)
+	msgLogger.Close()
+	runWG.Wait()
+
 	return nil
 }
 
@@ -361,12 +398,12 @@ type issueArgs struct {
 	rwRatio     float32
 	rand        *rand.Rand
 	reqTimeout  time.Duration
+	tsStep      int
 
 	readC, writeC chan<- result
 }
 
-func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execDuration time.Duration) {
-	var wg sync.WaitGroup
+func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arrivalGen intgen.Gen, execDuration time.Duration) {
 	start := time.Now()
 	shardedRand := syncrand.NewSharded(args.rand)
 	reqi := 0
@@ -382,27 +419,26 @@ func issueOpen(ctx context.Context, args issueArgs, arrivalGen intgen.Gen, execD
 		time.Sleep(wait)
 		reqStart := time.Now()
 		reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
-		wg.Add(1)
+		reqWG.Add(1)
 		go func(ctx context.Context, rng *rand.Rand, reqStart time.Time, isRead bool) {
-			defer wg.Done()
+			defer reqWG.Done()
 			if isRead {
 				key := args.readKeyGen.Next(rng)
 				_, err := args.db.Get(reqCtx, key)
 				latency := time.Since(reqStart)
-				args.readC <- result{latency, err}
+				args.readC <- result{step: args.tsStep, latency: latency, err: err}
 			} else {
 				key := args.writeKeyGen.Next(rng)
 				val := args.valGen.Next(rng)
 				err := args.db.Put(reqCtx, key, val)
 				latency := time.Since(start)
-				args.writeC <- result{latency, err}
+				args.writeC <- result{step: args.tsStep, latency: latency, err: err}
 			}
 		}(reqCtx, shardedRand.Get(reqi), reqStart, nextIsRead)
 	}
-	wg.Wait()
 }
 
-func issueClosed(ctx context.Context, args issueArgs, workers int, totalOps int64) {
+func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers int, totalOps int64) {
 	nops := new(counter)
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -422,13 +458,13 @@ func issueClosed(ctx context.Context, args issueArgs, workers int, totalOps int6
 					key := args.readKeyGen.Next(rng)
 					_, err := args.db.Get(reqCtx, key)
 					latency := time.Since(start)
-					args.readC <- result{latency, err}
+					args.readC <- result{step: args.tsStep, latency: latency, err: err}
 				} else {
 					key := args.writeKeyGen.Next(rng)
 					val := args.valGen.Next(rng)
 					err := args.db.Put(reqCtx, key, val)
 					latency := time.Since(start)
-					args.writeC <- result{latency, err}
+					args.writeC <- result{step: args.tsStep, latency: latency, err: err}
 				}
 			}
 		}(rand.New(rand.NewSource(args.rand.Int63())))

@@ -324,8 +324,8 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		AutoResize:        true,
 	}
 
-	readRec := recorders.NewLatency(hdrCfg)
-	writeRec := recorders.NewLatency(hdrCfg)
+	readRec := recorders.NewLatency(hdrCfg, len(trace))
+	writeRec := recorders.NewLatency(hdrCfg, len(trace))
 
 	r := bench.Runner{
 		Log:           log.New(os.Stderr, "fabbench: run: ", log.LstdFlags),

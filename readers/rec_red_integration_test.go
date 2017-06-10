@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"math/rand"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,43 +15,34 @@ var badRec = errors.New("bad request")
 
 func TestLatencyRecorderRecordsNRecords(t *testing.T) {
 	tests := []struct {
-		nrec    int
-		perr    float32
-		nworker int
+		nrec int
+		perr float32
 	}{
-		{1000, 0.3, 4},
-		{10000, 0.5, 2},
-		{1000, 1, 8},
-		{1000, 0, 17},
+		{1000, 0.3},
+		{10000, 0.5},
+		{1000, 1},
+		{1000, 0},
 	}
 
 	for i, test := range tests {
-		var wg sync.WaitGroup
-		wg.Add(test.nworker)
 		rec := recorders.NewLatency(hdrhist.Config{
 			LowestDiscernible: int64(time.Nanosecond),
 			HighestTrackable:  int64(time.Second),
 			SigFigs:           3,
 			AutoResize:        true,
-		})
-		for n := 0; n < test.nworker; n++ {
-			go func(n int) {
-				rng := rand.New(rand.NewSource(int64(n)))
-				for r := 0; r < test.nrec; r++ {
-					if rng.Float32() < test.perr {
-						rec.Record(0, badRec)
-					} else {
-						rec.Record(100, nil)
-					}
-				}
-				wg.Done()
-			}(n)
+		}, 1)
+		rng := rand.New(rand.NewSource(int64(0)))
+		for r := 0; r < test.nrec; r++ {
+			if rng.Float32() < test.perr {
+				rec.Record(0, 0, badRec)
+			} else {
+				rec.Record(0, 100, nil)
+			}
 		}
-		wg.Wait()
 		rd := readerOf(t, rec)
 
 		nreq := numReqs(rd)
-		wantreq := int64(test.nrec) * int64(test.nworker)
+		wantreq := int64(test.nrec)
 		if nreq != wantreq {
 			t.Errorf("case %d: have recorded %d requests, want %d", i, nreq, wantreq)
 		}
@@ -90,19 +80,20 @@ func TestLatencyRecorderReaderRoundTrip(t *testing.T) {
 		HighestTrackable:  int64(100 * time.Second),
 		SigFigs:           3,
 		AutoResize:        true,
-	})
-	rec.Reset()
-	rec.Record(1, nil)
-	rec.Record(time.Nanosecond, nil)
-	rec.Record(time.Microsecond, nil)
-	rec.Record(time.Millisecond, nil)
-	rec.Record(time.Second, nil)
-	rec.Record(2000*time.Millisecond, nil)
-	rec.Record(100000*time.Second, nil)
-	rec.Record(123123123123, errors.New("dummy0"))
-	rec.Record(123129993123, errors.New("dummy2"))
-	rec.Record(0xffffffaaaf, errors.New("dummy3"))
-	rec.Record(12317773, errors.New("dummy4"))
+	}, 1)
+	rec.Start(0)
+	rec.Record(0, 1, nil)
+	rec.Record(0, time.Nanosecond, nil)
+	rec.Record(0, time.Microsecond, nil)
+	rec.Record(0, time.Millisecond, nil)
+	rec.Record(0, time.Second, nil)
+	rec.Record(0, 2000*time.Millisecond, nil)
+	rec.Record(0, 100000*time.Second, nil)
+	rec.Record(0, 123123123123, errors.New("dummy0"))
+	rec.Record(0, 123129993123, errors.New("dummy2"))
+	rec.Record(0, 0xffffffaaaf, errors.New("dummy3"))
+	rec.Record(0, 12317773, errors.New("dummy4"))
+	rec.End(0)
 
 	var buf bytes.Buffer
 	lw := hdrhist.NewLogWriter(&buf)
@@ -132,43 +123,38 @@ func TestLatencyRecorderReaderMulti(t *testing.T) {
 		HighestTrackable:  int64(100 * time.Second),
 		SigFigs:           3,
 		AutoResize:        true,
-	})
+	}, 3)
 
-	rec.Reset()
-	rec.Record(0, nil)
-	rec.Record(time.Nanosecond, nil)
-	rec.Record(time.Microsecond, nil)
-	rec.Record(time.Millisecond, nil)
-	rec.Record(time.Second, nil)
-	rec.Record(2000*time.Millisecond, nil)
-	rec.Record(100000*time.Second, nil)
-	rec.Record(123123123123, errors.New("dummy0"))
+	rec.Start(0)
+	rec.Record(0, 0, nil)
+	rec.Record(0, time.Nanosecond, nil)
+	rec.Record(0, time.Microsecond, nil)
+	rec.Record(0, time.Millisecond, nil)
+	rec.Record(0, time.Second, nil)
+	rec.Record(0, 2000*time.Millisecond, nil)
+	rec.Record(0, 100000*time.Second, nil)
+	rec.Record(0, 123123123123, errors.New("dummy0"))
+	rec.End(0)
+
+	rec.Start(1)
+	rec.Record(1, time.Microsecond, nil)
+	rec.Record(1, time.Millisecond, nil)
+	rec.Record(1, time.Second, nil)
+	rec.Record(1, 2000*time.Millisecond, nil)
+	rec.Record(1, 100000*time.Second, nil)
+	rec.End(1)
+
+	rec.Start(2)
+	rec.Record(2, 0, nil)
+	rec.Record(2, time.Nanosecond, nil)
+	rec.Record(1, 123123123123, errors.New("dummy0"))
+	rec.Record(2, time.Millisecond, nil)
+	rec.Record(2, 100000*time.Second, nil)
+	rec.Record(2, 123123123123, errors.New("dummy0"))
+	rec.Record(2, 123123123123, errors.New("dummy2"))
+	rec.End(2)
 
 	lw := hdrhist.NewLogWriter(&buf)
-	if err := rec.WriteTo(lw); err != nil {
-		t.Fatalf("unexpected error while writing 1: %v", err)
-	}
-
-	rec.Reset()
-	rec.Record(time.Microsecond, nil)
-	rec.Record(time.Millisecond, nil)
-	rec.Record(time.Second, nil)
-	rec.Record(2000*time.Millisecond, nil)
-	rec.Record(100000*time.Second, nil)
-	rec.Record(123123123123, errors.New("dummy0"))
-
-	if err := rec.WriteTo(lw); err != nil {
-		t.Fatalf("unexpected error while writing 2: %v", err)
-	}
-
-	rec.Reset()
-	rec.Record(0, nil)
-	rec.Record(time.Nanosecond, nil)
-	rec.Record(time.Millisecond, nil)
-	rec.Record(100000*time.Second, nil)
-	rec.Record(123123123123, errors.New("dummy0"))
-	rec.Record(123123123123, errors.New("dummy2"))
-
 	if err := rec.WriteTo(lw); err != nil {
 		t.Fatalf("unexpected error while writing 3: %v", err)
 	}

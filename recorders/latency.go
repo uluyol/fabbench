@@ -2,65 +2,71 @@ package recorders
 
 import (
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/uluyol/hdrhist"
 )
 
+// Latency records latencies. It is NOT safe for concurrent use.
 type Latency struct {
-	mu sync.Mutex
-
-	rec  hdrhist.Recorder
-	errs int32
-
-	scratch *hdrhist.Hist
+	recs []hdrhist.Hist
+	errs []int32
 }
 
-func NewLatency(cfg hdrhist.Config) *Latency {
-	l := &Latency{}
-	l.rec.Init(cfg)
+func NewLatency(cfg hdrhist.Config, numStep int) *Latency {
+	l := &Latency{
+		recs: make([]hdrhist.Hist, numStep),
+		errs: make([]int32, numStep),
+	}
+	for i := range l.recs {
+		l.recs[i].Init(cfg)
+	}
 	return l
 }
 
-func (r *Latency) Reset() {
+func (r *Latency) End(step int) {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 
-	r.scratch = r.rec.IntervalHist(r.scratch)
-	r.errs = 0
+	r.recs[step].SetEndTime(time.Now())
 }
 
-func (r *Latency) Record(d time.Duration, err error) {
+func (r *Latency) Start(step int) {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+
+	r.recs[step].Clear()
+	r.recs[step].SetStartTime(time.Now())
+	r.errs[step] = 0
+}
+
+func (r *Latency) Record(step int, d time.Duration, err error) {
+	if r == nil {
+		return
+	}
 	if err != nil {
-		r.errs++
+		r.errs[step]++
 		return
 	}
 
-	r.rec.Record(int64(d))
+	r.recs[step].Record(int64(d))
 }
 
 func (r *Latency) WriteTo(w *hdrhist.LogWriter) error {
 	if r == nil {
 		return nil
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	h := r.rec.IntervalHist(r.scratch)
-	if err := w.WriteIntervalHist(h); err != nil {
-		return err
+	for i := range r.recs {
+		if err := w.WriteIntervalHist(&r.recs[i]); err != nil {
+			return err
+		}
+		err := w.WriteComment("fabbench: error count for previous: " + strconv.Itoa(int(r.errs[i])))
+		if err != nil {
+			return err
+		}
 	}
-	err := w.WriteComment("fabbench: error count for previous: " + strconv.Itoa(int(r.errs)))
 
-	r.scratch = h
-	return err
+	return nil
 }
