@@ -9,6 +9,7 @@ import (
 	"github.com/uluyol/fabbench/db"
 
 	_ "github.com/uluyol/fabbench/db/cassandra"
+	_ "github.com/uluyol/fabbench/db/dummy"
 )
 
 type cmdConfig struct {

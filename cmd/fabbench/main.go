@@ -37,6 +37,10 @@ CONFIG FORMAT
 	Because fabbench is meant to handle multiple databases, db.options is
 	db-specific.
 
+	Currently, fabbench supports the following databases:
+		dummy:     A dummy database useful for testing
+		cassandra: Apache Cassandra via gocql
+
 	For cassandra, the schema for db.options is
 		{
 			"clientRetries":        INT,    // optional
