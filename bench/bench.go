@@ -407,6 +407,7 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 	start := time.Now()
 	shardedRand := syncrand.NewSharded(args.rand)
 	reqi := 0
+	reqStart := time.Now().Add(-10 * time.Minute)
 	for time.Since(start) < execDuration {
 		reqi++
 		select {
@@ -415,9 +416,9 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 		default: // don't wait
 		}
 		nextIsRead := args.rand.Float32() < args.rwRatio
-		wait := time.Duration(arrivalGen.Next(args.rand)) * 10 * time.Microsecond
-		time.Sleep(wait)
-		reqStart := time.Now()
+		next := reqStart.Add(time.Duration(arrivalGen.Next(args.rand)) * 10 * time.Microsecond)
+		time.Sleep(next.Sub(time.Now()))
+		reqStart = time.Now()
 		reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 		reqWG.Add(1)
 		go func(ctx context.Context, rng *rand.Rand, reqStart time.Time, isRead bool) {

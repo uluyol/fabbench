@@ -33,3 +33,14 @@ func TestUniformArrivalDist(t *testing.T) {
 		}
 	}
 }
+
+var sink int64
+
+func BenchmarkPoisson(b *testing.B) {
+	rng := rand.New(rand.NewSource(0))
+	g := newPoisson(1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sink = g.Next(rng)
+	}
+}
