@@ -86,22 +86,23 @@ func procFile(p string, w io.Writer, startTime, endTime time.Time, accum *hdrhis
 		hist := l.Hists[i]
 		errs := l.Errs[i]
 
-		start, ok := hist.StartTime()
+		hstart, ok := hist.StartTime()
 		if !ok {
-			start = time.Unix(0, 0)
+			hstart = time.Unix(0, 0)
 		}
-		end, ok := hist.EndTime()
+		hend, ok := hist.EndTime()
 		if !ok {
-			end = time.Date(2050, time.January, 1, 1, 1, 1, 0, time.UTC)
+			hend = time.Date(2050, time.January, 1, 1, 1, 1, 0, time.UTC)
 		}
 
-		if start.Before(startTime) || end.After(endTime) {
+		if *end != -1 && (hstart.Before(startTime) || hend.After(endTime)) {
+			log.Print("skip", startTime, endTime, hstart, hend)
 			continue
 		}
 
 		fmt.Fprintf(w, "#start StepNum=%d NumSamples=%d UnixStart=%d,%d UnixEnd=%d,%d Errs=%d\n",
-			i, hist.TotalCount(), start.Unix(), start.Nanosecond(),
-			end.Unix(), end.Nanosecond(), errs)
+			i, hist.TotalCount(), hstart.Unix(), hstart.Nanosecond(),
+			hend.Unix(), hend.Nanosecond(), errs)
 
 		if !*mergeTS {
 			fprint(w, hist, *merge, i)
