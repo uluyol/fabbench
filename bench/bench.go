@@ -237,14 +237,13 @@ func makeArrivalDist(d arrivalDist, meanPeriod float64) intgen.Gen {
 }
 
 type Runner struct {
-	_            struct{}
-	Log          Logger
-	DB           db.DB
-	Config       Config
-	Rand         *rand.Rand
-	Trace        []TraceStep
-	ReqTimeout   time.Duration
-	MaxWorkerQPS int
+	_          struct{}
+	Log        Logger
+	DB         db.DB
+	Config     Config
+	Rand       *rand.Rand
+	Trace      []TraceStep
+	ReqTimeout time.Duration
 
 	ReadRecorder  *recorders.Latency
 	ReadWriter    *hdrhist.LogWriter
@@ -366,7 +365,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
 			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
 		} else {
-			shards := ranges.Chunks(int64(ts.AvgQPS), int64(r.MaxWorkerQPS))
+			shards := ranges.Chunks(int64(ts.AvgQPS), int64(runtime.NumCPU()))
 			var wg sync.WaitGroup
 			wg.Add(len(shards))
 			for w := range shards {

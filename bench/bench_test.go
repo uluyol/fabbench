@@ -33,12 +33,11 @@ func TestLoadRun(t *testing.T) {
 		t.Fatalf("unable to load: %v", err)
 	}
 	r := Runner{
-		DB:           conn,
-		Config:       cfg,
-		Rand:         rand.New(rand.NewSource(0)),
-		Trace:        mustMakeTrace([]string{"d=1s rw=0.5 qps=1000 ad=poisson rkd=uniform wkd=uniform"}),
-		ReqTimeout:   10 * time.Second,
-		MaxWorkerQPS: 103,
+		DB:         conn,
+		Config:     cfg,
+		Rand:       rand.New(rand.NewSource(0)),
+		Trace:      mustMakeTrace([]string{"d=1s rw=0.5 qps=1000 ad=poisson rkd=uniform wkd=uniform"}),
+		ReqTimeout: 10 * time.Second,
 	}
 	if err := r.Run(context.Background()); err != nil {
 		t.Fatalf("unable to run: %v", err)
