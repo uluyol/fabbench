@@ -266,7 +266,14 @@ type result struct {
 
 func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w *hdrhist.LogWriter) {
 	for res := range c {
-		rec.Record(res.step, res.latency, res.err)
+		switch {
+		case res.timeBeg != nil:
+			rec.SetStart(res.step, *res.timeBeg)
+		case res.timeEnd != nil:
+			rec.SetEnd(res.step, *res.timeEnd)
+		default:
+			rec.Record(res.step, res.latency, res.err)
+		}
 	}
 	rec.WriteTo(w)
 	wg.Done()

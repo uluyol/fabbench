@@ -24,22 +24,25 @@ func NewLatency(cfg hdrhist.Config, numStep int) *Latency {
 	return l
 }
 
-func (r *Latency) End(step int) {
-	if r == nil {
-		return
-	}
+func (r *Latency) Start(step int) { r.SetStart(step, time.Now()) }
+func (r *Latency) End(step int)   { r.SetEnd(step, time.Now()) }
 
-	r.recs[step].SetEndTime(time.Now())
-}
-
-func (r *Latency) Start(step int) {
+func (r *Latency) SetStart(step int, t time.Time) {
 	if r == nil {
 		return
 	}
 
 	r.recs[step].Clear()
-	r.recs[step].SetStartTime(time.Now())
+	r.recs[step].SetStartTime(t)
 	r.errs[step] = 0
+}
+
+func (r *Latency) SetEnd(step int, t time.Time) {
+	if r == nil {
+		return
+	}
+
+	r.recs[step].SetEndTime(t)
 }
 
 func (r *Latency) Record(step int, d time.Duration, err error) {
