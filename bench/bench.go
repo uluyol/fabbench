@@ -305,7 +305,7 @@ func (c *resultCounter) getAndReset() (succ int32, fail int32) {
 	return succ, fail
 }
 
-func (r *Runner) Run(ctx context.Context) error {
+func (r *Runner) Run(parentCtx context.Context) error {
 	valGen := newValueGen(r.Config.ValSize)
 
 	var runWG sync.WaitGroup
@@ -330,6 +330,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	})
 
 	var reqWG sync.WaitGroup
+
+	ctx, cancelCtx := context.WithCancel(parentCtx)
 
 	for tsIndex, ts := range r.Trace {
 		if r.Log != nil {
@@ -385,6 +387,8 @@ func (r *Runner) Run(ctx context.Context) error {
 		readC <- result{step: tsIndex, timeEnd: &end}
 		writeC <- result{step: tsIndex, timeEnd: &end}
 	}
+
+	cancelCtx()
 
 	reqWG.Wait()
 
