@@ -96,7 +96,6 @@ func procFile(p string, w io.Writer, startTime, endTime time.Time, accum *hdrhis
 		}
 
 		if *end != -1 && (hstart.Before(startTime) || hend.After(endTime)) {
-			log.Print("skip", startTime, endTime, hstart, hend)
 			continue
 		}
 

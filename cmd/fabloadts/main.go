@@ -20,7 +20,7 @@ var (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: fabcdfs [flags] log.gz > cdfs.csv")
+	fmt.Fprintln(os.Stderr, "usage: fabloadts [flags] log.gz > cdfs.csv")
 	fmt.Fprintln(os.Stderr, "\nOUTPUT FORMAT")
 	fmt.Fprintln(os.Stderr, "\t#start StepNum=N NumSamples=K UnixTime=Sec,Nano")
 	fmt.Fprintln(os.Stderr, "\tStepNum,Percenile,Micros")
@@ -29,7 +29,7 @@ func usage() {
 }
 
 func main() {
-	log.SetPrefix("fabcdfs: ")
+	log.SetPrefix("fabloadts: ")
 	log.SetFlags(0)
 	flag.Usage = usage
 	flag.Parse()
@@ -89,7 +89,6 @@ func procFile(p string, w io.Writer, startTime, endTime time.Time, accum *hdrhis
 		}
 
 		if *end != -1 && (hstart.Before(startTime) || hend.After(endTime)) {
-			log.Print("skip", startTime, endTime, hstart, hend)
 			continue
 		}
 
