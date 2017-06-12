@@ -70,9 +70,6 @@ func min(a, b int64) int64 {
 }
 
 type periodicLogger struct {
-	log    Logger
-	period time.Duration
-	out    func(l Logger)
 	done   chan struct{}
 	prDone <-chan struct{}
 }
@@ -83,27 +80,26 @@ func openPeriodicLogger(log Logger, period time.Duration, out func(l Logger)) *p
 	}
 	pdone := make(chan struct{})
 	l := &periodicLogger{
-		log:    log,
-		period: period,
-		out:    out,
 		done:   make(chan struct{}),
 		prDone: pdone,
 	}
-	l.goPrinter(pdone)
+	l.goPrinter(log, period, out, pdone)
 	return l
 }
 
-func (l *periodicLogger) goPrinter(pdone chan<- struct{}) {
+func (l *periodicLogger) goPrinter(log Logger, period time.Duration, out func(l Logger), pdone chan<- struct{}) {
 	go func() {
-		t := time.NewTicker(l.period)
+		t := time.NewTicker(period)
 		defer t.Stop()
-		defer close(pdone)
+		defer func() {
+			close(pdone)
+		}()
 		for {
 			select {
 			case <-t.C:
-				l.out(l.log)
+				out(log)
 			case <-l.done:
-				l.out(l.log)
+				out(log)
 				return
 			}
 		}
@@ -261,17 +257,25 @@ type result struct {
 
 	latency time.Duration
 	err     error
+
+	isDone bool
 }
 
 func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w *hdrhist.LogWriter) {
 	for res := range c {
+		exitLoop := false
 		switch {
+		case res.isDone:
+			exitLoop = true
 		case res.timeBeg != nil:
 			rec.SetStart(res.step, *res.timeBeg)
 		case res.timeEnd != nil:
 			rec.SetEnd(res.step, *res.timeEnd)
 		default:
 			rec.Record(res.step, res.latency, res.err)
+		}
+		if exitLoop {
+			break
 		}
 	}
 	rec.WriteTo(w)
@@ -390,10 +394,9 @@ func (r *Runner) Run(parentCtx context.Context) error {
 
 	cancelCtx()
 
-	reqWG.Wait()
+	readC <- result{step: -1, isDone: true}
+	writeC <- result{step: -1, isDone: true}
 
-	close(readC)
-	close(writeC)
 	msgLogger.Close()
 	runWG.Wait()
 
