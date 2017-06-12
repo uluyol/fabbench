@@ -257,7 +257,6 @@ type runCmd struct {
 	tracePath  string
 	outPre     string
 	hostsCSV   string
-	timeout    time.Duration
 	baseFlags
 }
 
@@ -270,7 +269,6 @@ func (c *runCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.tracePath, "trace", "", "trace file path")
 	fs.StringVar(&c.outPre, "out", "", "output path prefix (will add -ro.gz and -wo.gz)")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
-	fs.DurationVar(&c.timeout, "timeout", 10*time.Second, "timeout for server requests")
 	c.baseFlags.SetFlags(fs)
 }
 
@@ -335,7 +333,6 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		ReadWriter:    readLW,
 		WriteRecorder: writeRec,
 		WriteWriter:   writeLW,
-		ReqTimeout:    c.timeout,
 	}
 
 	if err := r.Run(ctx); err != nil {

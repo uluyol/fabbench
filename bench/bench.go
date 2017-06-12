@@ -233,13 +233,12 @@ func makeArrivalDist(d arrivalDist, meanPeriod float64) intgen.Gen {
 }
 
 type Runner struct {
-	_          struct{}
-	Log        Logger
-	DB         db.DB
-	Config     Config
-	Rand       *rand.Rand
-	Trace      []TraceStep
-	ReqTimeout time.Duration
+	_      struct{}
+	Log    Logger
+	DB     db.DB
+	Config Config
+	Rand   *rand.Rand
+	Trace  []TraceStep
 
 	ReadRecorder  *recorders.Latency
 	ReadWriter    *hdrhist.LogWriter
@@ -360,7 +359,6 @@ func (r *Runner) Run(parentCtx context.Context) error {
 			rand:        r.Rand,
 			readC:       readC,
 			writeC:      writeC,
-			reqTimeout:  r.ReqTimeout,
 			tsStep:      tsIndex,
 		}
 
@@ -371,11 +369,11 @@ func (r *Runner) Run(parentCtx context.Context) error {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
 			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
 		} else {
-			shards := ranges.Chunks(int64(ts.AvgQPS), int64(runtime.NumCPU()))
+			shards := ranges.SplitRecords(int64(ts.AvgQPS), int64(runtime.NumCPU()))
 			var wg sync.WaitGroup
 			wg.Add(len(shards))
 			for w := range shards {
-				meanPeriod := float64(time.Second) / float64(shards[w])
+				meanPeriod := float64(time.Second) / float64(shards[w].Count)
 				// shrink period so that dist calculation doesn't take too long
 				meanPeriod /= 10 * float64(time.Microsecond)
 				arrivalGen := makeArrivalDist(ts.ArrivalDist, float64(meanPeriod))
@@ -410,7 +408,6 @@ type issueArgs struct {
 	valGen      *valueGen
 	rwRatio     float32
 	rand        *rand.Rand
-	reqTimeout  time.Duration
 	tsStep      int
 
 	readC, writeC chan<- result
@@ -420,35 +417,34 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 	start := time.Now()
 	shardedRand := syncrand.NewSharded(args.rand)
 	reqi := 0
-	reqStart := time.Now().Add(-10 * time.Minute)
 	for time.Since(start) < execDuration {
 		reqi++
-		select {
-		case <-ctx.Done():
-			break
-		default: // don't wait
+		if reqi%128 == 0 {
+			select {
+			case <-ctx.Done():
+				break
+			default: // don't wait
+			}
 		}
 		nextIsRead := args.rand.Float32() < args.rwRatio
-		next := reqStart.Add(time.Duration(arrivalGen.Next(args.rand)) * 10 * time.Microsecond)
-		time.Sleep(next.Sub(time.Now()))
-		reqStart = time.Now()
-		reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
+		sleepDur := time.Duration(arrivalGen.Next(args.rand)) * 10 * time.Microsecond
+		time.Sleep(sleepDur)
 		reqWG.Add(1)
-		go func(ctx context.Context, rng *rand.Rand, reqStart time.Time, isRead bool) {
+		go func(rng *rand.Rand, reqStart time.Time, isRead bool) {
 			defer reqWG.Done()
 			if isRead {
 				key := args.readKeyGen.Next(rng)
-				_, err := args.db.Get(reqCtx, key)
+				_, err := args.db.Get(ctx, key)
 				latency := time.Since(reqStart)
 				args.readC <- result{step: args.tsStep, latency: latency, err: err}
 			} else {
 				key := args.writeKeyGen.Next(rng)
 				val := args.valGen.Next(rng)
-				err := args.db.Put(reqCtx, key, val)
+				err := args.db.Put(ctx, key, val)
 				latency := time.Since(start)
 				args.writeC <- result{step: args.tsStep, latency: latency, err: err}
 			}
-		}(reqCtx, shardedRand.Get(reqi), reqStart, nextIsRead)
+		}(shardedRand.Get(reqi), time.Now(), nextIsRead)
 	}
 }
 
@@ -466,17 +462,16 @@ func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers
 					break
 				default: // don't wait
 				}
-				reqCtx, _ := context.WithTimeout(ctx, args.reqTimeout)
 				start := time.Now()
 				if rng.Float32() < args.rwRatio {
 					key := args.readKeyGen.Next(rng)
-					_, err := args.db.Get(reqCtx, key)
+					_, err := args.db.Get(ctx, key)
 					latency := time.Since(start)
 					args.readC <- result{step: args.tsStep, latency: latency, err: err}
 				} else {
 					key := args.writeKeyGen.Next(rng)
 					val := args.valGen.Next(rng)
-					err := args.db.Put(reqCtx, key, val)
+					err := args.db.Put(ctx, key, val)
 					latency := time.Since(start)
 					args.writeC <- result{step: args.tsStep, latency: latency, err: err}
 				}
