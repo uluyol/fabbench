@@ -3,28 +3,18 @@ package bench
 import (
 	"math"
 	"math/rand"
+
+	"github.com/uluyol/fabbench/intgen"
 )
 
-type poisson struct {
-	l float64
-}
-
-func newPoisson(lambda float64) poisson {
-	if lambda <= 0 {
-		panic("lambda must be positive")
+func newPoisson(λ float64) intgen.Gen {
+	if λ <= 0 {
+		panic("λ must be positive")
 	}
-	return poisson{math.Exp(-lambda)}
-}
-
-func (g poisson) Next(rng *rand.Rand) int64 {
-	k := int64(0)
-	p := float64(1)
-
-	for p > g.l {
-		k++
-		p *= rng.Float64()
+	if λ < 30 {
+		return newPoissonSmall(λ)
 	}
-	return k - 1
+	return newPoissonLarge(λ)
 }
 
 type closed struct{}

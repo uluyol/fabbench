@@ -370,18 +370,19 @@ func (r *Runner) Run(parentCtx context.Context) error {
 			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
 		} else {
 			shards := ranges.SplitRecords(int64(ts.AvgQPS), int64(runtime.NumCPU()))
+			//shards := ranges.SplitRecords(int64(ts.AvgQPS), 1)
 			var wg sync.WaitGroup
 			wg.Add(len(shards))
 			for w := range shards {
 				meanPeriod := float64(time.Second) / float64(shards[w].Count)
 				// shrink period so that dist calculation doesn't take too long
-				meanPeriod /= 10 * float64(time.Microsecond)
+				meanPeriod /= float64(time.Microsecond)
 				arrivalGen := makeArrivalDist(ts.ArrivalDist, float64(meanPeriod))
 				args.rand = rand.New(rand.NewSource(r.Rand.Int63()))
-				go func(wargs issueArgs, wag intgen.Gen) {
-					issueOpen(ctx, wargs, &reqWG, wag, ts.Duration)
+				go func(wargs issueArgs, wag intgen.Gen, dur time.Duration) {
+					issueOpen(ctx, wargs, &reqWG, wag, dur)
 					wg.Done()
-				}(args, arrivalGen)
+				}(args, arrivalGen, ts.Duration)
 			}
 			wg.Wait()
 		}
@@ -414,9 +415,10 @@ type issueArgs struct {
 }
 
 func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arrivalGen intgen.Gen, execDuration time.Duration) {
-	start := time.Now()
 	shardedRand := syncrand.NewSharded(args.rand)
 	reqi := 0
+	start := time.Now()
+	plannedStart := start
 	for time.Since(start) < execDuration {
 		reqi++
 		if reqi%128 == 0 {
@@ -427,8 +429,9 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 			}
 		}
 		nextIsRead := args.rand.Float32() < args.rwRatio
-		sleepDur := time.Duration(arrivalGen.Next(args.rand)) * 10 * time.Microsecond
-		time.Sleep(sleepDur)
+		sleepDur := time.Duration(arrivalGen.Next(args.rand)) * time.Microsecond
+		plannedStart = plannedStart.Add(sleepDur)
+		time.Sleep(plannedStart.Sub(time.Now()))
 		reqWG.Add(1)
 		go func(rng *rand.Rand, reqStart time.Time, isRead bool) {
 			defer reqWG.Done()
