@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"runtime"
 	"testing"
@@ -67,21 +68,14 @@ func TestLoadRun(t *testing.T) {
 }
 
 func TestRunClosedOps(t *testing.T) {
-
-}
-
-type nopWriter struct{}
-
-func (w nopWriter) Write(b []byte) (int, error) {
-	return len(b), nil
-}
-
-func TestRunOpenQPS(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		trace []string
 	}{
-		{[]string{"rkd=zipfian-0 wkd=uniform rw=0.5 d=1s ad=poisson qps=500", "qps=300", "qps=10000", "qps=30000"}},
-		{[]string{"rkd=linear wkd=uniform rw=0.7 ad=uniform-0.2 d=1s qps=100", "qps=700", "qps=18000", "qps=25000"}},
+		{[]string{"rkd=uniform wkd=uniform rw=0 d=1s ad=closed-10 qps=3333", "ad=closed-100", "ad=closed-25000"}},
+		{[]string{"rkd=uniform wkd=uniform rw=0 d=1s ad=closed-11 qps=1", "ad=closed-100", "ad=closed-1111"}},
+		{[]string{"rkd=uniform wkd=uniform rw=0 d=1s ad=closed-7 qps=0", "d=5s ad=closed-22", "ad=closed-555"}},
+		{[]string{"rkd=uniform wkd=uniform rw=0 d=1s ad=closed-4 qps=100000", "d=100ms ad=closed-55", "ad=closed-232"}},
 	}
 
 	conn, err := db.Dial("dummy", nil, nil)
@@ -111,7 +105,101 @@ func TestRunOpenQPS(t *testing.T) {
 			rw := hdrhist.NewLogWriter(&rbuf)
 			ww := hdrhist.NewLogWriter(&wbuf)
 			r := Runner{
-				Log:    tLogger{t},
+				DB:     conn,
+				Config: cfg,
+				Rand:   rand.New(rand.NewSource(883)),
+				Trace:  trace,
+
+				ReadRecorder:  rr,
+				WriteRecorder: wr,
+				ReadWriter:    rw,
+				WriteWriter:   ww,
+			}
+
+			if err := r.Run(context.Background()); err != nil {
+				t.Errorf("case %d: unable to run: %v", i, err)
+				continue
+			}
+		}
+
+		rr, err := readers.ReadLatency(&rbuf)
+		if err != nil {
+			t.Fatalf("case %d: unable to read written read latencies: %v", i, err)
+		}
+		wr, err := readers.ReadLatency(&wbuf)
+		if err != nil {
+			t.Fatalf("case %d: unable to read written write latencies: %v", i, err)
+		}
+
+		for step := range trace {
+			if rr.Errs[step] != 0 {
+				t.Errorf("case %d: step %d: got read errors", i, step)
+				continue
+			}
+			have := float64(rr.Hists[step].TotalCount())
+			want := float64(trace[step].RWRatio) * float64(trace[step].AvgQPS) * float64(trace[step].Duration) / float64(time.Second)
+			if math.Abs(have-want)/want > 0.0001 {
+				t.Errorf("case %d: step %d: have %f reads, want %f reads", i, step, have, want)
+			}
+			if wr.Errs[step] != 0 {
+				t.Errorf("case %d: step %d: got write errors", i, step)
+				continue
+			}
+			have = float64(wr.Hists[step].TotalCount())
+			want = float64(1-trace[step].RWRatio) * float64(trace[step].AvgQPS) * float64(trace[step].Duration) / float64(time.Second)
+			if math.Abs(have-want)/want > 0.0001 {
+				t.Errorf("case %d: step %d: have %f writes, want %f writes", i, step, have, want)
+			}
+		}
+	}
+}
+
+type nopWriter struct{}
+
+func (w nopWriter) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
+func TestRunOpenQPSFlakey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode")
+	}
+	tests := []struct {
+		trace []string
+	}{
+		{[]string{"rkd=zipfian-0 wkd=uniform rw=0.5 d=1s ad=poisson qps=500", "qps=300", "qps=10000", "qps=30000"}},
+		{[]string{"rkd=linear wkd=uniform rw=0.7 ad=uniform-0.2 d=1s qps=100", "qps=700", "qps=18000", "qps=25000"}},
+		{[]string{"rkd=linear wkd=zipfian-0.99999 rw=0 ad=uniform-0 d=1s qps=20", "qps=144"}},
+		{[]string{"rkd=linear wkd=linstep-5 rw=1 ad=poisson d=1s qps=30", "rw=0.5 qps=3232", "qps=58731"}},
+	}
+
+	conn, err := db.Dial("dummy", nil, nil)
+	if err != nil {
+		t.Fatal("failed to setup: %v", err)
+	}
+	defer conn.Close()
+	cfg := Config{
+		RecordCount: 1e3,
+		KeySize:     1 << 8,
+		ValSize:     1 << 6,
+	}
+	hcfg := hdrhist.Config{
+		LowestDiscernible: 1,
+		HighestTrackable:  1e6,
+		SigFigs:           3,
+		AutoResize:        true,
+	}
+	for i, test := range tests {
+		trace := mustMakeTrace(test.trace)
+
+		var rbuf, wbuf bytes.Buffer
+
+		{
+			rr := recorders.NewLatency(hcfg, len(trace))
+			wr := recorders.NewLatency(hcfg, len(trace))
+			rw := hdrhist.NewLogWriter(&rbuf)
+			ww := hdrhist.NewLogWriter(&wbuf)
+			r := Runner{
 				DB:     conn,
 				Config: cfg,
 				Rand:   rand.New(rand.NewSource(883)),

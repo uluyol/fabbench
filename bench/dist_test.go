@@ -50,6 +50,7 @@ func TestDistMeanAccurate(t *testing.T) {
 }
 
 func TestUniformArrivalDist(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		mean, width float64
 	}{
