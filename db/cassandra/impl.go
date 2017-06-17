@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -301,31 +302,50 @@ func exponentialRetry(ctx context.Context, maxTries int, f func() error) error {
 	return err
 }
 
-func (c *client) Get(ctx context.Context, key string) (string, error) {
-	s, err := c.getSession()
-	if err != nil {
-		return "", fmt.Errorf("unable to connect to db: %v", err)
-	}
-	q := c.getQuery(s)
-	var v string
-	err = exponentialRetry(ctx, *c.conf.ClientRetries, func() error {
-		return c.traceQuery(q.Bind(key).WithContext(ctx), true).Scan(&v)
-	})
-	c.cacheGetQuery(q)
-	return v, err
+type hostInfo struct {
+	hi *gocql.HostInfo
 }
 
-func (c *client) Put(ctx context.Context, key, val string) error {
+func (hi hostInfo) ID() string {
+	if hi.hi == nil {
+		return net.IP{}.String()
+	}
+	ip := hi.hi.Peer()
+	return ip.String()
+}
+
+func (c *client) Get(ctx context.Context, key string) (string, db.Meta, error) {
 	s, err := c.getSession()
 	if err != nil {
-		return fmt.Errorf("unable to connect to db: %v", err)
+		return "", db.EmptyMeta(), fmt.Errorf("unable to connect to db: %v", err)
 	}
+	var v string
+	var hi *gocql.HostInfo
+	q := c.getQuery(s)
+	err = exponentialRetry(ctx, *c.conf.ClientRetries, func() error {
+		iter := c.traceQuery(q.Bind(key).WithContext(ctx), true).Iter()
+		iter.Scan(&v)
+		hi = iter.Host()
+		return iter.Close()
+	})
+	c.cacheGetQuery(q)
+	return v, db.MetaWithHostInfo(db.EmptyMeta(), hostInfo{hi}), err
+}
+
+func (c *client) Put(ctx context.Context, key, val string) (db.Meta, error) {
+	s, err := c.getSession()
+	if err != nil {
+		return db.EmptyMeta(), fmt.Errorf("unable to connect to db: %v", err)
+	}
+	var hi *gocql.HostInfo
 	q := c.putQuery(s)
 	err = exponentialRetry(ctx, *c.conf.ClientRetries, func() error {
-		return c.traceQuery(q.Bind(key, val).WithContext(ctx), false).Exec()
+		iter := c.traceQuery(q.Bind(key, val).WithContext(ctx), false).Iter()
+		hi = iter.Host()
+		return iter.Close()
 	})
 	c.cachePutQuery(q)
-	return err
+	return db.MetaWithHostInfo(db.EmptyMeta(), hostInfo{hi}), err
 }
 
 func (c *client) Close() error {

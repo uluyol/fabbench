@@ -7,8 +7,8 @@ import (
 
 type DB interface {
 	Init(ctx context.Context) error
-	Get(ctx context.Context, key string) (string, error)
-	Put(ctx context.Context, key, val string) error
+	Get(ctx context.Context, key string) (string, Meta, error)
+	Put(ctx context.Context, key, val string) (Meta, error)
 	Close() error
 }
 
@@ -23,4 +23,53 @@ func Dial(name string, hosts []string, cfgData []byte) (DB, error) {
 		return mkDB(hosts, cfgData)
 	}
 	return nil, fmt.Errorf("unknown db: %s", name)
+}
+
+type Meta interface {
+	Value(key interface{}) interface{}
+}
+
+type meta struct {
+	key    interface{}
+	val    interface{}
+	parent Meta
+}
+
+func (m *meta) Value(k interface{}) interface{} {
+	if m.key == k {
+		return m.val
+	}
+	return m.parent.Value(k)
+}
+
+func MetaWithValue(parent Meta, key interface{}, val interface{}) Meta {
+	return &meta{
+		key:    key,
+		val:    val,
+		parent: parent,
+	}
+}
+
+type emptyMeta struct{}
+
+func (m emptyMeta) Value(_ interface{}) interface{} { return nil }
+
+func EmptyMeta() Meta { return emptyMeta{} }
+
+type HostInfo interface {
+	ID() string
+}
+
+type hostInfoKey struct{}
+
+func MetaWithHostInfo(parent Meta, hi HostInfo) Meta {
+	return MetaWithValue(parent, hostInfoKey{}, hi)
+}
+
+func GetHostInfo(m Meta) (HostInfo, bool) {
+	v := m.Value(hostInfoKey{})
+	if v == nil {
+		return nil, false
+	}
+	return v.(HostInfo), true
 }

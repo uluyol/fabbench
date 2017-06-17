@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/uluyol/fabbench/db"
 )
 
 type rtClient struct {
@@ -58,13 +60,13 @@ func (c *rtClient) Init(ctx context.Context) error {
 	return c.doReq(ctx)
 }
 
-func (c *rtClient) Get(ctx context.Context, key string) (string, error) {
+func (c *rtClient) Get(ctx context.Context, key string) (string, db.Meta, error) {
 	if err := c.doReq(ctx); err != nil {
-		return "", err
+		return "", db.EmptyMeta(), err
 	}
-	return key + "-value", nil
+	return key + "-value", db.EmptyMeta(), nil
 }
 
-func (c *rtClient) Put(ctx context.Context, key, val string) error {
-	return c.doReq(ctx)
+func (c *rtClient) Put(ctx context.Context, key, val string) (db.Meta, error) {
+	return db.EmptyMeta(), c.doReq(ctx)
 }

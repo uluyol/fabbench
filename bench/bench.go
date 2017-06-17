@@ -153,7 +153,7 @@ func (l *Loader) Run(ctx context.Context) error {
 			for i := nops.getAndInc(); i < loadCount; i = nops.getAndInc() {
 				key := keyGen.Next(rng)
 				val := valGen.Next(rng)
-				if err := l.DB.Put(newCtx, key, val); err != nil {
+				if _, err := l.DB.Put(newCtx, key, val); err != nil {
 					curFail := nfail.getAndInc()
 					if float64(curFail)/float64(loadCount) > l.AllowedFailFrac {
 						retErr = err
@@ -437,13 +437,13 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 			defer reqWG.Done()
 			if isRead {
 				key := args.readKeyGen.Next(rng)
-				_, err := args.db.Get(ctx, key)
+				_, _, err := args.db.Get(ctx, key)
 				latency := time.Since(reqStart)
 				args.readC <- result{step: args.tsStep, latency: latency, err: err}
 			} else {
 				key := args.writeKeyGen.Next(rng)
 				val := args.valGen.Next(rng)
-				err := args.db.Put(ctx, key, val)
+				_, err := args.db.Put(ctx, key, val)
 				latency := time.Since(start)
 				args.writeC <- result{step: args.tsStep, latency: latency, err: err}
 			}
@@ -468,13 +468,13 @@ func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers
 				start := time.Now()
 				if rng.Float32() < args.rwRatio {
 					key := args.readKeyGen.Next(rng)
-					_, err := args.db.Get(ctx, key)
+					_, _, err := args.db.Get(ctx, key)
 					latency := time.Since(start)
 					args.readC <- result{step: args.tsStep, latency: latency, err: err}
 				} else {
 					key := args.writeKeyGen.Next(rng)
 					val := args.valGen.Next(rng)
-					err := args.db.Put(ctx, key, val)
+					_, err := args.db.Put(ctx, key, val)
 					latency := time.Since(start)
 					args.writeC <- result{step: args.tsStep, latency: latency, err: err}
 				}

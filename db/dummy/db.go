@@ -31,18 +31,18 @@ func (c *client) Init(_ context.Context) error {
 	return nil
 }
 
-func (c *client) Get(_ context.Context, key string) (string, error) {
+func (c *client) Get(_ context.Context, key string) (string, db.Meta, error) {
 	if c.isClosed() {
-		return "", errClosed
+		return "", db.EmptyMeta(), errClosed
 	}
-	return key + "-value", nil
+	return key + "-value", db.EmptyMeta(), nil
 }
 
-func (c *client) Put(_ context.Context, key, val string) error {
+func (c *client) Put(_ context.Context, key, val string) (db.Meta, error) {
 	if c.isClosed() {
-		return errClosed
+		return db.EmptyMeta(), errClosed
 	}
-	return nil
+	return db.EmptyMeta(), nil
 }
 
 func init() {
