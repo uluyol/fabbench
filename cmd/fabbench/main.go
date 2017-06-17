@@ -286,32 +286,9 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		log.Fatalf("unable to load trace: %v", err)
 	}
 
-	readF, err := os.Create(c.outPre + "-ro.gz")
-	if err != nil {
-		log.Fatalf("unable to open read log file: %v", err)
-	}
-	defer readF.Close()
-
-	writeF, err := os.Create(c.outPre + "-wo.gz")
-	if err != nil {
-		log.Fatalf("unable to open write log file %v", err)
-	}
-	defer writeF.Close()
-
-	readW, _ := gzip.NewWriterLevel(readF, gzip.BestSpeed)
-	defer readW.Close()
-	writeW, _ := gzip.NewWriterLevel(writeF, gzip.BestSpeed)
-	defer writeW.Close()
-
-	readLW := hdrhist.NewLogWriter(readW)
-	writeLW := hdrhist.NewLogWriter(writeW)
-
-	now := time.Now()
-	for _, lw := range [...]*hdrhist.LogWriter{readLW, writeLW} {
-		lw.WriteStartTime(now)
-		lw.SetBaseTime(now)
-		lw.WriteLegend()
-	}
+	benchStart := time.Now()
+	readw := recorders.NewMultiLogWriter(c.outPre+"-ro", benchStart, gzip.BestSpeed)
+	writew := recorders.NewMultiLogWriter(c.outPre+"-wo", benchStart, gzip.BestSpeed)
 
 	hdrCfg := hdrhist.Config{
 		LowestDiscernible: int64(10 * time.Microsecond),
@@ -320,8 +297,13 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		AutoResize:        true,
 	}
 
-	readRec := recorders.NewLatency(hdrCfg, len(trace))
-	writeRec := recorders.NewLatency(hdrCfg, len(trace))
+	traceDescs := make([]string, len(trace))
+	for i := range trace {
+		traceDescs[i] = trace[i].String()
+	}
+
+	readRec := recorders.NewMultiLatency(hdrCfg, traceDescs)
+	writeRec := recorders.NewMultiLatency(hdrCfg, traceDescs)
 
 	r := bench.Runner{
 		Log:           log.New(os.Stderr, "fabbench: run: ", log.LstdFlags),
@@ -330,9 +312,9 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 		Rand:          rand.New(rand.NewSource(rand.Int63())),
 		Trace:         trace,
 		ReadRecorder:  readRec,
-		ReadWriter:    readLW,
+		ReadWriter:    readw,
 		WriteRecorder: writeRec,
-		WriteWriter:   writeLW,
+		WriteWriter:   writew,
 	}
 
 	if err := r.Run(ctx); err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync/atomic"
 	"time"
 
@@ -12,10 +13,23 @@ import (
 )
 
 type client struct {
+	hosts   []string
 	_closed int32
 }
 
+type hostInfo string
+
+func (hi hostInfo) ID() string { return string(hi) }
+
 var errClosed = errors.New("db is closed")
+
+func (c *client) reqMeta() db.Meta {
+	if len(c.hosts) == 0 {
+		return db.EmptyMeta()
+	}
+	i := rand.Intn(len(c.hosts))
+	return db.MetaWithHostInfo(db.EmptyMeta(), hostInfo(c.hosts[i]))
+}
 
 func (c *client) isClosed() bool { return atomic.LoadInt32(&c._closed) != 0 }
 
@@ -35,18 +49,18 @@ func (c *client) Get(_ context.Context, key string) (string, db.Meta, error) {
 	if c.isClosed() {
 		return "", db.EmptyMeta(), errClosed
 	}
-	return key + "-value", db.EmptyMeta(), nil
+	return key + "-value", c.reqMeta(), nil
 }
 
 func (c *client) Put(_ context.Context, key, val string) (db.Meta, error) {
 	if c.isClosed() {
 		return db.EmptyMeta(), errClosed
 	}
-	return db.EmptyMeta(), nil
+	return c.reqMeta(), nil
 }
 
 func init() {
-	db.Register("dummy", func(_ []string, data []byte) (db.DB, error) {
+	db.Register("dummy", func(hosts []string, data []byte) (db.DB, error) {
 		type conf struct {
 			MaxQPS *int `json:"maxQPS",omitempty`
 		}
@@ -58,7 +72,7 @@ func init() {
 			return nil, fmt.Errorf("invalid dummy config: %v", err)
 		}
 		if cfg.MaxQPS == nil {
-			return &client{}, nil
+			return &client{hosts: hosts}, nil
 		} else {
 			c := &rtClient{
 				Latency: time.Second / time.Duration(*cfg.MaxQPS),

@@ -30,7 +30,7 @@ func TestLatencyRecorderRecordsNRecords(t *testing.T) {
 			HighestTrackable:  int64(time.Second),
 			SigFigs:           3,
 			AutoResize:        true,
-		}, 1)
+		}, []string{"ZZZ"})
 		rng := rand.New(rand.NewSource(int64(0)))
 		for r := 0; r < test.nrec; r++ {
 			if rng.Float32() < test.perr {
@@ -80,7 +80,7 @@ func TestLatencyRecorderReaderRoundTrip(t *testing.T) {
 		HighestTrackable:  int64(100 * time.Second),
 		SigFigs:           3,
 		AutoResize:        true,
-	}, 1)
+	}, []string{"zd=2"})
 	rec.Start(0)
 	rec.Record(0, 1, nil)
 	rec.Record(0, time.Nanosecond, nil)
@@ -123,7 +123,7 @@ func TestLatencyRecorderReaderMulti(t *testing.T) {
 		HighestTrackable:  int64(100 * time.Second),
 		SigFigs:           3,
 		AutoResize:        true,
-	}, 3)
+	}, []string{"rw=1", "ttt", ";;+99"})
 
 	rec.Start(0)
 	rec.Record(0, 0, nil)

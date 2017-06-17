@@ -14,7 +14,6 @@ import (
 	"github.com/uluyol/fabbench/internal/syncrand"
 	"github.com/uluyol/fabbench/intgen"
 	"github.com/uluyol/fabbench/recorders"
-	"github.com/uluyol/hdrhist"
 )
 
 type Config struct {
@@ -240,27 +239,49 @@ type Runner struct {
 	Rand   *rand.Rand
 	Trace  []TraceStep
 
-	ReadRecorder  *recorders.Latency
-	ReadWriter    *hdrhist.LogWriter
-	WriteRecorder *recorders.Latency
-	WriteWriter   *hdrhist.LogWriter
+	ReadRecorder  *recorders.MultiLatency
+	ReadWriter    recorders.MultiLogWriter
+	WriteRecorder *recorders.MultiLatency
+	WriteWriter   recorders.MultiLogWriter
 }
 
 type result struct {
 	_    struct{}
 	step int
 
-	// optional, ignores latency, err if present
+	// optional, ignores name, latency, err if present
 	timeBeg *time.Time
 	timeEnd *time.Time
 
+	name    string
 	latency time.Duration
 	err     error
 
 	isDone bool
 }
 
-func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency, w *hdrhist.LogWriter) {
+func resDoneReq(step int, name string, latency time.Duration, err error) result {
+	return result{
+		step:    step,
+		name:    name,
+		latency: latency,
+		err:     err,
+	}
+}
+
+func resBegin(step int, t time.Time) result {
+	return result{step: step, timeBeg: &t}
+}
+
+func resEnd(step int, t time.Time) result {
+	return result{step: step, timeEnd: &t}
+}
+
+func resRunIsDone() result {
+	return result{step: -1, isDone: true}
+}
+
+func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.MultiLatency, w recorders.MultiLogWriter) {
 	for res := range c {
 		exitLoop := false
 		switch {
@@ -271,7 +292,7 @@ func recordAndWrite(c <-chan result, wg *sync.WaitGroup, rec *recorders.Latency,
 		case res.timeEnd != nil:
 			rec.SetEnd(res.step, *res.timeEnd)
 		default:
-			rec.Record(res.step, res.latency, res.err)
+			rec.Record(res.name, res.step, res.latency, res.err)
 		}
 		if exitLoop {
 			break
@@ -363,8 +384,8 @@ func (r *Runner) Run(parentCtx context.Context) error {
 		}
 
 		start := time.Now()
-		readC <- result{step: tsIndex, timeBeg: &start}
-		writeC <- result{step: tsIndex, timeBeg: &start}
+		readC <- resBegin(tsIndex, start)
+		writeC <- resBegin(tsIndex, start)
 		if ts.ArrivalDist.Kind == adClosed {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
 			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
@@ -387,14 +408,14 @@ func (r *Runner) Run(parentCtx context.Context) error {
 			wg.Wait()
 		}
 		end := time.Now()
-		readC <- result{step: tsIndex, timeEnd: &end}
-		writeC <- result{step: tsIndex, timeEnd: &end}
+		readC <- resEnd(tsIndex, end)
+		writeC <- resEnd(tsIndex, end)
 	}
 
 	cancelCtx()
 
-	readC <- result{step: -1, isDone: true}
-	writeC <- result{step: -1, isDone: true}
+	readC <- resRunIsDone()
+	writeC <- resRunIsDone()
 
 	msgLogger.Close()
 	runWG.Wait()
@@ -437,15 +458,15 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 			defer reqWG.Done()
 			if isRead {
 				key := args.readKeyGen.Next(rng)
-				_, _, err := args.db.Get(ctx, key)
+				_, meta, err := args.db.Get(ctx, key)
 				latency := time.Since(reqStart)
-				args.readC <- result{step: args.tsStep, latency: latency, err: err}
+				args.readC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
 			} else {
 				key := args.writeKeyGen.Next(rng)
 				val := args.valGen.Next(rng)
-				_, err := args.db.Put(ctx, key, val)
+				meta, err := args.db.Put(ctx, key, val)
 				latency := time.Since(start)
-				args.writeC <- result{step: args.tsStep, latency: latency, err: err}
+				args.writeC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
 			}
 		}(shardedRand.Get(reqi), time.Now(), nextIsRead)
 	}
@@ -468,18 +489,25 @@ func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers
 				start := time.Now()
 				if rng.Float32() < args.rwRatio {
 					key := args.readKeyGen.Next(rng)
-					_, _, err := args.db.Get(ctx, key)
+					_, meta, err := args.db.Get(ctx, key)
 					latency := time.Since(start)
-					args.readC <- result{step: args.tsStep, latency: latency, err: err}
+					args.readC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
 				} else {
 					key := args.writeKeyGen.Next(rng)
 					val := args.valGen.Next(rng)
-					_, err := args.db.Put(ctx, key, val)
+					meta, err := args.db.Put(ctx, key, val)
 					latency := time.Since(start)
-					args.writeC <- result{step: args.tsStep, latency: latency, err: err}
+					args.writeC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
 				}
 			}
 		}(rand.New(rand.NewSource(args.rand.Int63())))
 	}
 	wg.Wait()
+}
+
+func getHost(m db.Meta) string {
+	if hi, ok := db.GetHostInfo(m); ok {
+		return hi.ID()
+	}
+	return ""
 }

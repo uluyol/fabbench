@@ -1,7 +1,6 @@
 package bench
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -96,14 +95,17 @@ func TestRunClosedOps(t *testing.T) {
 	}
 	for i, test := range tests {
 		trace := mustMakeTrace(test.trace)
+		descs := make([]string, len(trace))
+		for i := range trace {
+			descs[i] = trace[i].String()
+		}
 
-		var rbuf, wbuf bytes.Buffer
-
+		start := time.Now()
+		rw := recorders.NewMemoryMultiLogWriter(start)
+		ww := recorders.NewMemoryMultiLogWriter(start)
 		{
-			rr := recorders.NewLatency(hcfg, len(trace))
-			wr := recorders.NewLatency(hcfg, len(trace))
-			rw := hdrhist.NewLogWriter(&rbuf)
-			ww := hdrhist.NewLogWriter(&wbuf)
+			rr := recorders.NewMultiLatency(hcfg, descs)
+			wr := recorders.NewMultiLatency(hcfg, descs)
 			r := Runner{
 				DB:     conn,
 				Config: cfg,
@@ -122,11 +124,11 @@ func TestRunClosedOps(t *testing.T) {
 			}
 		}
 
-		rr, err := readers.ReadLatency(&rbuf)
+		rr, err := readers.ReadLatency(rw.AllReader())
 		if err != nil {
 			t.Fatalf("case %d: unable to read written read latencies: %v", i, err)
 		}
-		wr, err := readers.ReadLatency(&wbuf)
+		wr, err := readers.ReadLatency(ww.AllReader())
 		if err != nil {
 			t.Fatalf("case %d: unable to read written write latencies: %v", i, err)
 		}
@@ -191,14 +193,17 @@ func TestRunOpenQPSFlakey(t *testing.T) {
 	}
 	for i, test := range tests {
 		trace := mustMakeTrace(test.trace)
+		descs := make([]string, len(trace))
+		for i := range trace {
+			descs[i] = trace[i].String()
+		}
 
-		var rbuf, wbuf bytes.Buffer
-
+		start := time.Now()
+		rw := recorders.NewMemoryMultiLogWriter(start)
+		ww := recorders.NewMemoryMultiLogWriter(start)
 		{
-			rr := recorders.NewLatency(hcfg, len(trace))
-			wr := recorders.NewLatency(hcfg, len(trace))
-			rw := hdrhist.NewLogWriter(&rbuf)
-			ww := hdrhist.NewLogWriter(&wbuf)
+			rr := recorders.NewMultiLatency(hcfg, descs)
+			wr := recorders.NewMultiLatency(hcfg, descs)
 			r := Runner{
 				DB:     conn,
 				Config: cfg,
@@ -217,11 +222,11 @@ func TestRunOpenQPSFlakey(t *testing.T) {
 			}
 		}
 
-		rr, err := readers.ReadLatency(&rbuf)
+		rr, err := readers.ReadLatency(rw.AllReader())
 		if err != nil {
 			t.Fatalf("case %d: unable to read written read latencies: %v", i, err)
 		}
-		wr, err := readers.ReadLatency(&wbuf)
+		wr, err := readers.ReadLatency(ww.AllReader())
 		if err != nil {
 			t.Fatalf("case %d: unable to read written write latencies: %v", i, err)
 		}
