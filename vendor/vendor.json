@@ -63,10 +63,10 @@
 			"revisionTime": "2017-05-09T09:25:25Z"
 		},
 		{
-			"checksumSHA1": "KQDw8c6BTLvF2fWldwST03wdyEc=",
+			"checksumSHA1": "OLFFRn4lVfWTTeei9ntJGRVGFS0=",
 			"path": "github.com/uluyol/hdrhist",
-			"revision": "a82efc104af86b1231da48fc982b112081039fd5",
-			"revisionTime": "2017-06-08T02:47:01Z"
+			"revision": "a92086a52fabc553a93e86fbcf43b4dad28f4548",
+			"revisionTime": "2017-06-18T02:18:12Z"
 		},
 		{
 			"checksumSHA1": "2evFm658HYwvPJi/04/nCGbXa5k=",
@@ -85,6 +85,10 @@
 			"path": "gopkg.in/inf.v0",
 			"revision": "3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4",
 			"revisionTime": "2015-09-11T12:57:57Z"
+		},
+		{
+			"path": "math/bits",
+			"revision": ""
 		}
 	],
 	"rootPath": "github.com/uluyol/fabbench"
