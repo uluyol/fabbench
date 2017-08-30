@@ -6,7 +6,6 @@ package gocql
 
 import (
 	"bufio"
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -19,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/gocql/gocql/internal/lru"
 
 	"github.com/gocql/gocql/internal/streams"
@@ -28,7 +29,6 @@ var (
 	approvedAuthenticators = [...]string{
 		"org.apache.cassandra.auth.PasswordAuthenticator",
 		"com.instaclustr.cassandra.auth.SharedSecretAuthenticator",
-		"com.datastax.bdp.cassandra.auth.DseAuthenticator",
 	}
 )
 
@@ -78,7 +78,7 @@ func (p PasswordAuthenticator) Success(data []byte) error {
 }
 
 type SslOptions struct {
-	*tls.Config
+	tls.Config
 
 	// CertPath and KeyPath are optional depending on server
 	// config, but both fields must be omitted to avoid using a
@@ -590,11 +590,11 @@ func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*frame
 		call = streamPool.Get().(*callReq)
 	}
 	c.calls[stream] = call
+	c.mu.Unlock()
 
 	call.framer = framer
 	call.timeout = make(chan struct{})
 	call.streamID = stream
-	c.mu.Unlock()
 
 	if tracer != nil {
 		framer.trace()
@@ -712,7 +712,6 @@ func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer)
 	if err != nil {
 		flight.err = err
 		flight.wg.Done()
-		c.session.stmtsLRU.remove(stmtCacheKey)
 		return nil, err
 	}
 
@@ -725,14 +724,14 @@ func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer)
 
 	// TODO(zariel): tidy this up, simplify handling of frame parsing so its not duplicated
 	// everytime we need to parse a frame.
-	if len(framer.traceID) > 0 && tracer != nil {
+	if len(framer.traceID) > 0 {
 		tracer.Trace(framer.traceID)
 	}
 
 	switch x := frame.(type) {
 	case *resultPreparedFrame:
 		flight.preparedStatment = &preparedStatment{
-			// defensively copy as we will recycle the underlying buffer after we
+			// defensivly copy as we will recycle the underlying buffer after we
 			// return.
 			id: copyBytes(x.preparedID),
 			// the type info's should _not_ have a reference to the framers read buffer,
@@ -816,9 +815,6 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 
 			v := &params.values[i]
 			v.value = val
-			if _, ok := values[i].(unsetColumn); ok {
-				v.isUnset = true
-			}
 			// TODO: handle query binding names
 		}
 
@@ -965,12 +961,11 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 
 	n := len(batch.Entries)
 	req := &writeBatchFrame{
-		typ:                   batch.Type,
-		statements:            make([]batchStatment, n),
-		consistency:           batch.Cons,
-		serialConsistency:     batch.serialCons,
-		defaultTimestamp:      batch.defaultTimestamp,
-		defaultTimestampValue: batch.defaultTimestampValue,
+		typ:               batch.Type,
+		statements:        make([]batchStatment, n),
+		consistency:       batch.Cons,
+		serialConsistency: batch.serialCons,
+		defaultTimestamp:  batch.defaultTimestamp,
 	}
 
 	stmts := make(map[string]string, len(batch.Entries))
@@ -1015,9 +1010,6 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 				}
 
 				b.values[j].value = val
-				if _, ok := values[j].(unsetColumn); ok {
-					b.values[j].isUnset = true
-				}
 				// TODO: add names
 			}
 		} else {
@@ -1052,7 +1044,7 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 		if found {
 			return c.executeBatch(batch)
 		} else {
-			return &Iter{err: x, framer: framer}
+			return &Iter{err: err, framer: framer}
 		}
 	case *resultRowsFrame:
 		iter := &Iter{

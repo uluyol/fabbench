@@ -6,17 +6,17 @@ package gocql
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
+
+	"golang.org/x/net/context"
 
 	"github.com/gocql/gocql/internal/lru"
 )
@@ -76,23 +76,16 @@ var queryPool = &sync.Pool{
 }
 
 func addrsToHosts(addrs []string, defaultPort int) ([]*HostInfo, error) {
-	var hosts []*HostInfo
-	for _, hostport := range addrs {
+	hosts := make([]*HostInfo, len(addrs))
+	for i, hostport := range addrs {
 		host, err := hostInfo(hostport, defaultPort)
 		if err != nil {
-			// Try other hosts if unable to resolve DNS name
-			if _, ok := err.(*net.DNSError); ok {
-				Logger.Printf("gocql: dns error: %v\n", err)
-				continue
-			}
 			return nil, err
 		}
 
-		hosts = append(hosts, host)
+		hosts[i] = host
 	}
-	if len(hosts) == 0 {
-		return nil, errors.New("failed to resolve any of the provided hostnames")
-	}
+
 	return hosts, nil
 }
 
@@ -447,7 +440,7 @@ func (s *Session) routingKeyInfo(ctx context.Context, stmt string) (*routingKeyI
 	if cached {
 		// done accessing the cache
 		s.routingKeyInfoCache.mu.Unlock()
-		// the entry is an inflight struct similar to that used by
+		// the entry is an inflight struct similiar to that used by
 		// Conn to prepare statements
 		inflight := entry.(*inflightCachedEntry)
 
@@ -478,7 +471,7 @@ func (s *Session) routingKeyInfo(ctx context.Context, stmt string) (*routingKeyI
 	conn := s.getConn()
 	if conn == nil {
 		// TODO: better error?
-		inflight.err = errors.New("gocql: unable to fetch prepared info: no connection available")
+		inflight.err = errors.New("gocql: unable to fetch preapred info: no connection avilable")
 		return nil, inflight.err
 	}
 
@@ -1029,7 +1022,6 @@ func (q *Query) reset() {
 	q.defaultTimestamp = false
 	q.disableSkipMetadata = false
 	q.disableAutoPage = false
-	q.context = nil
 }
 
 // Iter represents an iterator that can be used to iterate over all rows that

@@ -16,10 +16,6 @@ import (
 	"time"
 )
 
-type unsetColumn struct{}
-
-var UnsetValue = unsetColumn{}
-
 const (
 	protoDirectionMask = 0x80
 	protoVersionMask   = 0x7F
@@ -562,7 +558,7 @@ func (f *framer) parseErrorFrame() frame {
 		stmtId := f.readShortBytes()
 		return &RequestErrUnprepared{
 			errorFrame:  errD,
-			StatementId: copyBytes(stmtId), // defensively copy
+			StatementId: copyBytes(stmtId), // defensivly copy
 		}
 	case errReadFailure:
 		res := &RequestErrReadFailure{
@@ -1259,10 +1255,8 @@ func (f *framer) writeAuthResponseFrame(streamID int, data []byte) error {
 
 type queryValues struct {
 	value []byte
-
 	// optional name, will set With names for values flag
-	name    string
-	isUnset bool
+	name string
 }
 
 type queryParams struct {
@@ -1325,16 +1319,11 @@ func (f *framer) writeQueryParams(opts *queryParams) {
 
 	if n := len(opts.values); n > 0 {
 		f.writeShort(uint16(n))
-
 		for i := 0; i < n; i++ {
 			if names {
 				f.writeString(opts.values[i].name)
 			}
-			if opts.values[i].isUnset {
-				f.writeUnset()
-			} else {
-				f.writeBytes(opts.values[i].value)
-			}
+			f.writeBytes(opts.values[i].value)
 		}
 	}
 
@@ -1415,11 +1404,7 @@ func (f *framer) writeExecuteFrame(streamID int, preparedID []byte, params *quer
 		n := len(params.values)
 		f.writeShort(uint16(n))
 		for i := 0; i < n; i++ {
-			if params.values[i].isUnset {
-				f.writeUnset()
-			} else {
-				f.writeBytes(params.values[i].value)
-			}
+			f.writeBytes(params.values[i].value)
 		}
 		f.writeConsistency(params.consistency)
 	}
@@ -1478,11 +1463,7 @@ func (f *framer) writeBatchFrame(streamID int, w *writeBatchFrame) error {
 				flags |= flagWithNameValues
 				f.writeString(col.name)
 			}
-			if col.isUnset {
-				f.writeUnset()
-			} else {
-				f.writeBytes(col.value)
-			}
+			f.writeBytes(col.value)
 		}
 	}
 
@@ -1803,14 +1784,6 @@ func (f *framer) writeStringList(l []string) {
 	for _, s := range l {
 		f.writeString(s)
 	}
-}
-
-func (f *framer) writeUnset() {
-	// Protocol version 4 specifies that bind variables do not require having a
-	// value when executing a statement.   Bind variables without a value are
-	// called 'unset'. The 'unset' bind variable is serialized as the int
-	// value '-2' without following bytes.
-	f.writeInt(-2)
 }
 
 func (f *framer) writeBytes(p []byte) {
