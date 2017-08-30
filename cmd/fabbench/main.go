@@ -38,8 +38,11 @@ CONFIG FORMAT
 	db-specific.
 
 	Currently, fabbench supports the following databases:
+		eckv:      ECKV
 		dummy:     A dummy database useful for testing
 		cassandra: Apache Cassandra via gocql
+
+	For eckv, there is no schema for db.options. Use {}
 
 	For dummy, the schema for db.options is
 		{
