@@ -177,10 +177,11 @@ func (c *mkTableCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...inte
 }
 
 type loadCmd struct {
-	configPath  string
-	hostsCSV    string
-	workers     int
-	maxFailFrac float64
+	configPath    string
+	hostsCSV      string
+	workers       int
+	maxFailFrac   float64
+	randSeedIndex int64
 
 	loadStart int64
 	loadCount int64
@@ -208,6 +209,7 @@ func (c *loadCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
 	fs.IntVar(&c.workers, "workers", 20, "number of concurrent workers")
 	fs.Float64Var(&c.maxFailFrac, "maxfailfrac", 0.01, "fraction of records that are allowed to fail to load")
+	fs.Int64Var(&c.randSeedIndex, "rand-seed-index", 0, "partial see to initialize rng (deterministic if 0)")
 
 	fs.Int64Var(&c.loadStart, "start", 0, "index to start loading from (use either start+count, or nshard+shardi)")
 	fs.Int64Var(&c.loadCount, "count", -1, "number of records to load (use either start+count, or nshard+shardi)")
@@ -237,11 +239,16 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 		loadCount = shards[c.shardi].Count
 	}
 
+	var seed int64
+	if c.randSeedIndex > 0 {
+		seed = time.Now().UnixNano() ^ c.randSeedIndex
+	}
+
 	l := bench.Loader{
 		Log:             log.New(os.Stderr, "fabbench: load: ", log.LstdFlags),
 		DB:              db,
 		Config:          *bcfg,
-		Rand:            rand.New(rand.NewSource(rand.Int63())),
+		Rand:            rand.New(rand.NewSource(seed)),
 		NumWorkers:      c.workers,
 		AllowedFailFrac: c.maxFailFrac,
 		LoadStart:       loadStart,
@@ -256,10 +263,11 @@ func (c *loadCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfa
 }
 
 type runCmd struct {
-	configPath string
-	tracePath  string
-	outPre     string
-	hostsCSV   string
+	configPath    string
+	tracePath     string
+	outPre        string
+	hostsCSV      string
+	randSeedIndex int64
 	baseFlags
 }
 
@@ -272,6 +280,7 @@ func (c *runCmd) SetFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.tracePath, "trace", "", "trace file path")
 	fs.StringVar(&c.outPre, "out", "", "output path prefix (will add -ro.gz and -wo.gz)")
 	fs.StringVar(&c.hostsCSV, "hosts", "", "host addresses (comma separated)")
+	fs.Int64Var(&c.randSeedIndex, "rand-seed-index", 0, "partial see to initialize rng (deterministic if 0)")
 	c.baseFlags.SetFlags(fs)
 }
 
@@ -308,11 +317,16 @@ func (c *runCmd) Execute(ctx context.Context, fs *flag.FlagSet, args ...interfac
 	readRec := recorders.NewMultiLatency(hdrCfg, traceDescs)
 	writeRec := recorders.NewMultiLatency(hdrCfg, traceDescs)
 
+	var seed int64
+	if c.randSeedIndex > 0 {
+		seed = time.Now().UnixNano() ^ c.randSeedIndex
+	}
+
 	r := bench.Runner{
 		Log:           log.New(os.Stderr, "fabbench: run: ", log.LstdFlags),
 		DB:            db,
 		Config:        *bcfg,
-		Rand:          rand.New(rand.NewSource(rand.Int63())),
+		Rand:          rand.New(rand.NewSource(seed)),
 		Trace:         trace,
 		ReadRecorder:  readRec,
 		ReadWriter:    readw,
