@@ -79,7 +79,7 @@ func TestRunClosedOps(t *testing.T) {
 
 	conn, err := db.Dial("dummy", nil, nil)
 	if err != nil {
-		t.Fatal("failed to setup: %v", err)
+		t.Fatalf("failed to setup: %v", err)
 	}
 	defer conn.Close()
 	cfg := Config{
@@ -177,7 +177,7 @@ func TestRunOpenQPSFlakey(t *testing.T) {
 
 	conn, err := db.Dial("dummy", nil, nil)
 	if err != nil {
-		t.Fatal("failed to setup: %v", err)
+		t.Fatalf("failed to setup: %v", err)
 	}
 	defer conn.Close()
 	cfg := Config{

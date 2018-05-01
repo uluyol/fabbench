@@ -16,7 +16,7 @@ import (
 )
 
 type conf struct {
-	ClientRetries        *int   `json:"clientRetries",omitempty`
+	ClientRetries        *int   `json:"clientRetries,omitempty"`
 	NumRetries           *int   `json:"numRetries,omitempty"`
 	NumConns             *int   `json:"numConns,omitempty"`
 	ReadConsistency      string `json:"readConsistency"`
@@ -30,8 +30,8 @@ type conf struct {
 	ConnectTimeout       string `json:"connectTimeout"`
 	Timeout              string `json:"timeout"`
 
-	TraceData *string `json:"traceData",omitempty`
-	TraceRate *uint32 `json:"traceRate",omitempty`
+	TraceData *string `json:"traceData,omitempty"`
+	TraceRate *uint32 `json:"traceRate,omitempty"`
 }
 
 func newInt(v int) *int { return &v }
@@ -177,11 +177,11 @@ func newClient(hosts []string, cfg *conf) (db.DB, error) {
 
 	readConsistency, err := parseConsistency(cfg.ReadConsistency)
 	if err != nil {
-		return nil, fmt.Errorf("invalid read consistency: %v")
+		return nil, fmt.Errorf("invalid read consistency: %v", err)
 	}
 	writeConsistency, err := parseConsistency(cfg.WriteConsistency)
 	if err != nil {
-		return nil, fmt.Errorf("invalid write consistency: %v")
+		return nil, fmt.Errorf("invalid write consistency: %v", err)
 	}
 
 	cluster := gocql.NewCluster(hosts...)

@@ -62,7 +62,7 @@ func (c *client) Put(_ context.Context, key, val string) (db.Meta, error) {
 func init() {
 	db.Register("dummy", func(hosts []string, data []byte) (db.DB, error) {
 		type conf struct {
-			MaxQPS *int `json:"maxQPS",omitempty`
+			MaxQPS *int `json:"maxQPS,omitempty"`
 		}
 		if len(data) == 0 {
 			data = []byte("{}")

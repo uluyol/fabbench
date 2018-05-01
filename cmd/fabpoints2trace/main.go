@@ -127,7 +127,7 @@ func main() {
 		steps = append(steps, [2]float64{x, y})
 	}
 	if s.Err() != nil {
-		log.Fatal("error reading input: %v", s.Err())
+		log.Fatalf("error reading input: %v", s.Err())
 	}
 
 	x2t := float64(*runtime) / steps[len(steps)-1][0]

@@ -178,6 +178,7 @@ func (l *Loader) Run(ctx context.Context) error {
 		}
 	}
 
+	cancel()
 	return retErr
 }
 
@@ -363,6 +364,7 @@ func (r *Runner) Run(parentCtx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
+			cancelCtx()
 			return ctx.Err()
 		default: // don't wait
 		}
@@ -390,7 +392,11 @@ func (r *Runner) Run(parentCtx context.Context) error {
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
 			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
 		} else {
-			shards := ranges.SplitRecords(int64(ts.AvgQPS), int64(runtime.NumCPU()))
+			numShards := int64(runtime.NumCPU())
+			if ts.AvgQPS < 200 {
+				numShards = 1
+			}
+			shards := ranges.SplitRecords(int64(ts.AvgQPS), numShards)
 			//shards := ranges.SplitRecords(int64(ts.AvgQPS), 1)
 			var wg sync.WaitGroup
 			wg.Add(len(shards))
@@ -465,7 +471,7 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 				key := args.writeKeyGen.Next(rng)
 				val := args.valGen.Next(rng)
 				meta, err := args.db.Put(ctx, key, val)
-				latency := time.Since(start)
+				latency := time.Since(reqStart)
 				args.writeC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
 			}
 		}(shardedRand.Get(reqi), time.Now(), nextIsRead)
