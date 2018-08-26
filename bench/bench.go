@@ -460,21 +460,11 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 		plannedStart = plannedStart.Add(sleepDur)
 		time.Sleep(plannedStart.Sub(time.Now()))
 		reqWG.Add(1)
-		go func(rng *rand.Rand, reqStart time.Time, isRead bool) {
-			defer reqWG.Done()
-			if isRead {
-				key := args.readKeyGen.Next(rng)
-				_, meta, err := args.db.Get(ctx, key)
-				latency := time.Since(reqStart)
-				args.readC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
-			} else {
-				key := args.writeKeyGen.Next(rng)
-				val := args.valGen.Next(rng)
-				meta, err := args.db.Put(ctx, key, val)
-				latency := time.Since(reqStart)
-				args.writeC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
-			}
-		}(shardedRand.Get(reqi), time.Now(), nextIsRead)
+		if nextIsRead {
+			go ReadReq(ctx, &args, shardedRand.Get(reqi), reqWG, time.Now())
+		} else {
+			go WriteReq(ctx, &args, shardedRand.Get(reqi), reqWG, time.Now())
+		}
 	}
 }
 
@@ -494,26 +484,12 @@ func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers
 				}
 				start := time.Now()
 				if rng.Float32() < args.rwRatio {
-					key := args.readKeyGen.Next(rng)
-					_, meta, err := args.db.Get(ctx, key)
-					latency := time.Since(start)
-					args.readC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
+					ReadReq(ctx, &args, rng, nil, start)
 				} else {
-					key := args.writeKeyGen.Next(rng)
-					val := args.valGen.Next(rng)
-					meta, err := args.db.Put(ctx, key, val)
-					latency := time.Since(start)
-					args.writeC <- resDoneReq(args.tsStep, getHost(meta), latency, err)
+					WriteReq(ctx, &args, rng, nil, start)
 				}
 			}
 		}(rand.New(rand.NewSource(args.rand.Int63())))
 	}
 	wg.Wait()
-}
-
-func getHost(m db.Meta) string {
-	if hi, ok := db.GetHostInfo(m); ok {
-		return hi.ID()
-	}
-	return ""
 }
