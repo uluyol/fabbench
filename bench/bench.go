@@ -3,6 +3,7 @@ package bench
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -220,7 +221,7 @@ func makeReqGen(d keyDist, nitems int64) intgen.Gen {
 func makeArrivalDist(d arrivalDist, meanPeriod float64) intgen.Gen {
 	var g intgen.Gen
 	switch d.Kind {
-	case adClosed:
+	case adClosed, adClosedTime:
 		g = closed{}
 	case adUniform:
 		g = newUniform(meanPeriod, d.uniWidth())
@@ -388,10 +389,16 @@ func (r *Runner) Run(parentCtx context.Context) error {
 		start := time.Now()
 		readC <- resBegin(tsIndex, start)
 		writeC <- resBegin(tsIndex, start)
-		if ts.ArrivalDist.Kind == adClosed {
+		switch ts.ArrivalDist.Kind {
+		case adClosed:
 			nops := int64(ts.Duration.Seconds() * float64(ts.AvgQPS))
-			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops)
-		} else {
+			dur := time.Duration(math.MaxInt64)
+			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops, dur)
+		case adClosedTime:
+			nops := int64(math.MaxInt64)
+			dur := ts.Duration
+			issueClosed(ctx, args, &reqWG, ts.ArrivalDist.clWorkers(), nops, dur)
+		default:
 			numShards := int64(runtime.NumCPU())
 			if ts.AvgQPS < 200 {
 				numShards = 1
@@ -468,15 +475,20 @@ func issueOpen(ctx context.Context, args issueArgs, reqWG *sync.WaitGroup, arriv
 	}
 }
 
-func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers int, totalOps int64) {
+func issueClosed(ctx context.Context, args issueArgs, _ *sync.WaitGroup, workers int, totalOps int64, maxDur time.Duration) {
 	nops := new(counter)
 	var wg sync.WaitGroup
+	start := time.Now()
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(rng *rand.Rand) {
 			defer wg.Done()
 
-			for i := nops.getAndInc(); i < totalOps; i = nops.getAndInc() {
+			for {
+				i := nops.getAndInc()
+				if time.Since(start) >= maxDur || i >= totalOps {
+					break
+				}
 				select {
 				case <-ctx.Done():
 					break

@@ -15,6 +15,7 @@ type arrivalDistKind uint8
 
 const (
 	adClosed arrivalDistKind = iota + 1
+	adClosedTime
 	adUniform
 	adPoisson
 )
@@ -28,6 +29,8 @@ func (d arrivalDist) String() string {
 	switch d.Kind {
 	case adClosed:
 		return fmt.Sprintf("closed-%d", d.clWorkers())
+	case adClosedTime:
+		return fmt.Sprintf("closedtime-%d", d.clWorkers())
 	case adUniform:
 		return fmt.Sprintf("uniform-%f", d.uniWidth())
 	case adPoisson:
@@ -37,8 +40,8 @@ func (d arrivalDist) String() string {
 }
 
 func (d arrivalDist) clWorkers() int {
-	if d.Kind != adClosed {
-		panic("check arrival dist kind: not closed")
+	if d.Kind != adClosed && d.Kind != adClosedTime {
+		panic("check arrival dist kind: not closed or closedtime")
 	}
 	return int(d.Param1)
 }
@@ -53,13 +56,20 @@ func (d arrivalDist) uniWidth() float64 {
 func parseArrivalDist(raw string) (arrivalDist, error) {
 	lower := strings.ToLower(raw)
 	switch {
-	case strings.HasPrefix(lower, "closed"):
+	case strings.HasPrefix(lower, "closed-"):
 		t := strings.TrimPrefix(lower, "closed-")
 		w, err := strconv.ParseInt(t, 10, 64)
 		if err != nil {
 			return arrivalDist{}, fmt.Errorf("bad workers for closed: %v", err)
 		}
 		return arrivalDist{Kind: adClosed, Param1: uint64(w)}, nil
+	case strings.HasPrefix(lower, "closedtime-"):
+		t := strings.TrimPrefix(lower, "closedtime-")
+		w, err := strconv.ParseInt(t, 10, 64)
+		if err != nil {
+			return arrivalDist{}, fmt.Errorf("bad workers for closedtime: %v", err)
+		}
+		return arrivalDist{Kind: adClosedTime, Param1: uint64(w)}, nil
 	case strings.HasPrefix(lower, "uniform"):
 		t := strings.TrimPrefix(lower, "uniform-")
 		w, err := strconv.ParseFloat(t, 64)

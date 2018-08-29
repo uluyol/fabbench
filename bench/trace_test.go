@@ -26,13 +26,15 @@ d=10m0s rw=0.500000 qps=200 ad=uniform-0.600000 rkd=linstep-5 wkd=uniform
 d=30m rw=0.2 qps=500 ad=closed-50 rkd=zipfian-0.9999 wkd=linear
 d=10m
 ad=uniform-0.2 wkd=zipfian-0.9
+ad=closedtime-10
 qps=200 rkd=linstep-5
 `,
 			out: `
 d=30m0s rw=0.200000 qps=500 ad=closed-50 rkd=zipfian-0.999900 wkd=linear
 d=10m0s rw=0.200000 qps=500 ad=closed-50 rkd=zipfian-0.999900 wkd=linear
 d=10m0s rw=0.200000 qps=500 ad=uniform-0.200000 rkd=zipfian-0.999900 wkd=zipfian-0.900000
-d=10m0s rw=0.200000 qps=200 ad=uniform-0.200000 rkd=linstep-5 wkd=zipfian-0.900000
+d=10m0s rw=0.200000 qps=500 ad=closedtime-10 rkd=zipfian-0.999900 wkd=zipfian-0.900000
+d=10m0s rw=0.200000 qps=200 ad=closedtime-10 rkd=linstep-5 wkd=zipfian-0.900000
 `,
 		},
 	}
